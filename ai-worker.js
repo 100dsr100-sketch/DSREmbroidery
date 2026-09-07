@@ -3,27 +3,27 @@
  * Turns the app's framed photo into an "embroidery" render.
  * Tries, in order:
  *   1. Cloudflare Workers AI img2img  (needs an "AI" binding + model access)
- *   2. Pollinations Flux img2img      (keyless, no account – always available)
+ *   2. Pollinations Flux img2img      (keyless, no account – with one retry)
  *
  * DEPLOY
  *   1. Edit code: paste this whole file over what's there, Deploy.
- *   2. Bindings tab -> Add binding -> "Workers AI", Variable name: AI  (optional
- *      but preferred – if your account can't use the models it just falls back).
+ *   2. Bindings tab -> Add binding -> "Workers AI", Variable name: AI
+ *      (still worth adding even if the models are blocked – harmless).
  *   3. Copy the Worker URL into the app (Embroidery -> "AI URL").
  *
  * Optional Worker variables (Settings -> Variables, type Text):
  *   AI_MODEL     force one Workers-AI model instead of the list below
  *   AI_STRENGTH  0-1, default 0.6
  *   AI_STEPS     default 20
- *   NO_POLLINATIONS  set to "1" to disable the keyless fallback
+ *   NO_POLLINATIONS  "1" disables the keyless fallback
  *   ALLOWED_ORIGINS  e.g. https://100dsr100-sketch.github.io,http://localhost
  * ---------------------------------------------------------------------------
  */
 
+// [model, how to pass the source image]
 const CF_MODELS = [
-  '@cf/stabilityai/stable-diffusion-xl-base-1.0',
-  '@cf/lykon/dreamshaper-8-lcm',
-  '@cf/runwayml/stable-diffusion-v1-5-img2img'
+  ['@cf/lykon/dreamshaper-8-lcm', 'b64'],
+  ['@cf/runwayml/stable-diffusion-v1-5-img2img', 'arr']
 ];
 
 const PROMPT =
@@ -64,6 +64,7 @@ async function toBuf(out) {
   if (out && typeof out.image === 'string') return bytesFromB64(out.image.replace(/^data:[^,]+,/, '')).buffer;
   return null;
 }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export default {
   async fetch(request, env) {
@@ -72,7 +73,6 @@ export default {
     const allowed = (env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim()).filter(Boolean);
     const ch = cors(origin, allowed);
 
-    // serve a briefly-stashed source image so Pollinations can fetch it
     if (request.method === 'GET' && url.pathname.startsWith('/_img/')) {
       const hit = await caches.default.match(new Request(url.origin + url.pathname));
       return hit || new Response('gone', { status: 404 });
@@ -96,16 +96,17 @@ export default {
 
     // ---- 1. Cloudflare Workers AI ----
     if (env.AI) {
-      const list = (body.model || env.AI_MODEL) ? [body.model || env.AI_MODEL] : CF_MODELS;
-      const inputs = { prompt, negative_prompt: NEG, image: [...src], image_b64: data, strength, guidance: 7.5, num_steps: steps };
-      for (const model of list) {
+      const list = (body.model || env.AI_MODEL) ? [[body.model || env.AI_MODEL, 'b64']] : CF_MODELS;
+      for (const [model, how] of list) {
+        const inp = { prompt, negative_prompt: NEG, strength, guidance: 7.5, num_steps: steps };
+        if (how === 'b64') inp.image_b64 = data; else inp.image = [...src];
         try {
-          const buf = await toBuf(await env.AI.run(model, inputs));
+          const buf = await toBuf(await env.AI.run(model, inp));
           if (buf && buf.byteLength > 500) return json({ image: b64FromBuf(buf), mime: 'image/png', model }, 200, ch);
           errs.push(model + ': empty');
         } catch (e) {
           const msg = (e && (e.message || e.toString())) || 'unknown';
-          if (/daily|neuron|\bquota\b/i.test(msg) && !/not allowed|5018/i.test(msg)) {
+          if (/\bdaily\b|neuron|\bquota\b/i.test(msg) && !/not allowed|5018/i.test(msg)) {
             return json({ error: 'Cloudflare AI daily free limit reached – try again tomorrow.', model }, 502, ch);
           }
           errs.push(model + ': ' + msg);
@@ -115,27 +116,34 @@ export default {
       errs.push('no AI binding');
     }
 
-    // ---- 2. Pollinations (keyless) ----
+    // ---- 2. Pollinations (keyless), one retry on 429/5xx ----
     if (env.NO_POLLINATIONS !== '1') {
-      try {
-        const id = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + '' + Math.random());
-        const stashUrl = url.origin + '/_img/' + id + '.jpg';
-        await caches.default.put(new Request(stashUrl), new Response(src, {
-          headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=300' }
-        }));
-        const p = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) +
-          '?width=768&height=768&nologo=true&safe=false&model=flux&image=' + encodeURIComponent(stashUrl);
-        const pr = await fetch(p, { headers: { 'Accept': 'image/*' } });
-        const ctype = pr.headers.get('content-type') || '';
-        if (pr.ok && ctype.startsWith('image')) {
-          const buf = await pr.arrayBuffer();
-          if (buf.byteLength > 500) return json({ image: b64FromBuf(buf), mime: ctype, model: 'pollinations/flux' }, 200, ch);
-          errs.push('pollinations: tiny response');
-        } else {
-          errs.push('pollinations: HTTP ' + pr.status + ' ' + ctype + ' ' + (await pr.text()).slice(0, 160));
+      const id = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + '' + Math.random());
+      const stashUrl = url.origin + '/_img/' + id + '.jpg';
+      await caches.default.put(new Request(stashUrl), new Response(src, {
+        headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=300' }
+      }));
+      const p = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) +
+        '?width=768&height=768&nologo=true&safe=false&model=flux&image=' + encodeURIComponent(stashUrl);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const pr = await fetch(p, { headers: { Accept: 'image/*' } });
+          const ctype = pr.headers.get('content-type') || '';
+          if (pr.ok && ctype.startsWith('image')) {
+            const buf = await pr.arrayBuffer();
+            if (buf.byteLength > 500) return json({ image: b64FromBuf(buf), mime: ctype, model: 'pollinations/flux' }, 200, ch);
+            errs.push('pollinations: tiny response');
+            break;
+          }
+          const txt = (await pr.text()).slice(0, 160);
+          errs.push('pollinations: HTTP ' + pr.status + ' ' + txt);
+          if ((pr.status === 429 || pr.status >= 500) && attempt < 2) { await sleep(12000); continue; }
+          break;
+        } catch (e) {
+          errs.push('pollinations: ' + ((e && e.message) || e));
+          if (attempt < 2) { await sleep(8000); continue; }
+          break;
         }
-      } catch (e) {
-        errs.push('pollinations: ' + ((e && e.message) || e));
       }
     }
 

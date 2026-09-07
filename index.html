@@ -23,7 +23,7 @@
 <style>
   @font-face{
     font-family:"Dancing Script";
-    src:url("dancingscript.woff2?v=1k") format("woff2");
+    src:url("dancingscript.woff2?v=1l") format("woff2");
     font-weight:400 700; font-display:swap;
   }
   :root{
@@ -182,7 +182,7 @@
       <div class="t1">DSR Systems</div>
       <div class="t2">DSR Embroidery</div>
     </div>
-    <div class="ver">Version 1k</div>
+    <div class="ver">Version 1l</div>
   </div>
 
   <div class="scroll">
@@ -345,8 +345,8 @@
 <div class="busy" id="busy"><div class="ring"></div><div class="msg" id="busyMsg">Working&hellip;</div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
-<script src="dmc.js?v=1k"></script>
-<script src="stitchengine.js?v=1k"></script>
+<script src="dmc.js?v=1l"></script>
+<script src="stitchengine.js?v=1l"></script>
 <script>
 (function () {
   'use strict';
@@ -1059,6 +1059,17 @@
     aiRender = null; $('btnAiClear').hidden = true;
     if (opt.mode === 'embroidery') { busy(true, 'Rendering…'); setTimeout(function () { renderChart(true); busy(false); }, 15); }
   });
+  function aiRequestOnce(dataUrl) {
+    return fetch(opt.aiUrl, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image: dataUrl,
+        extra: overlays.length ? 'Render any lettering or small motifs in the image as embroidered stitching too.' : ''
+      })
+    }).then(function (r) {
+      return r.json().catch(function () { return { error: 'Bad response (HTTP ' + r.status + ').' }; });
+    });
+  }
   $('btnAiRender').addEventListener('click', function () {
     if (!origId) { status('Load a photo first.'); return; }
     if (!opt.aiUrl) { status('Paste your AI render URL in the box below first.'); $('aiUrl').focus(); return; }
@@ -1072,31 +1083,38 @@
     sg.imageSmoothingQuality = 'high'; sg.drawImage(t, 0, 0, cw, chh);
     var dataUrl = s.toDataURL('image/jpeg', 0.92);
     var wantKey = aiKey();
-    busy(true, 'Rendering with AI… (10–20s)');
-    fetch(opt.aiUrl, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        image: dataUrl,
-        extra: overlays.length ? 'Render any lettering or small motifs in the image as embroidered stitching too.' : ''
-      })
-    })
-      .then(function (r) { return r.json().catch(function () { return { error: 'Bad response (HTTP ' + r.status + ').' }; }); })
-      .then(function (j) {
-        if (!j || j.error || !j.image) { busy(false); status('AI render failed: ' + ((j && j.error) || 'no image returned')); return; }
-        var url = /^data:/.test(j.image) ? j.image : ('data:' + (j.mime || 'image/png') + ';base64,' + j.image);
-        var im = new Image();
-        im.onload = function () {
-          var cv = document.createElement('canvas'); cv.width = im.naturalWidth; cv.height = im.naturalHeight;
-          cv.getContext('2d').drawImage(im, 0, 0);
-          aiRender = { img: cv, key: wantKey, dataUrl: url };
-          $('btnAiClear').hidden = false;
-          busy(false); status('AI render ready.');
-          if (opt.mode === 'embroidery') renderChart(true);
-        };
-        im.onerror = function () { busy(false); status('AI returned an unreadable image.'); };
-        im.src = url;
-      })
-      .catch(function (e) { busy(false); status('Could not reach the AI service: ' + (e && e.message || e)); });
+
+    var attempt = 0, maxAttempts = 3;
+    function go() {
+      attempt++;
+      busy(true, attempt === 1 ? 'Rendering with AI… (up to a minute)' : 'AI service was busy – retry ' + attempt + '/' + maxAttempts + '…');
+      aiRequestOnce(dataUrl).then(function (j) {
+        if (j && j.image) {
+          var url = /^data:/.test(j.image) ? j.image : ('data:' + (j.mime || 'image/png') + ';base64,' + j.image);
+          var im = new Image();
+          im.onload = function () {
+            var cv = document.createElement('canvas'); cv.width = im.naturalWidth; cv.height = im.naturalHeight;
+            cv.getContext('2d').drawImage(im, 0, 0);
+            aiRender = { img: cv, key: wantKey, dataUrl: url };
+            $('btnAiClear').hidden = false;
+            busy(false); status('AI render ready.');
+            if (opt.mode === 'embroidery') renderChart(true);
+          };
+          im.onerror = function () { busy(false); status('AI returned an unreadable image.'); };
+          im.src = url;
+          return;
+        }
+        var msg = (j && j.error) || 'no image returned';
+        var busyErr = /All render backends failed|Too Many Requests|429|queue full|busy|timeout/i.test(msg + ' ' + JSON.stringify((j && j.tried) || ''));
+        if (busyErr && attempt < maxAttempts) { setTimeout(go, 15000); return; }
+        busy(false);
+        status('AI render failed: ' + msg + ((j && j.tried) ? ' — ' + j.tried.join(' | ') : ''));
+      }).catch(function (e) {
+        if (attempt < maxAttempts) { setTimeout(go, 12000); return; }
+        busy(false); status('Could not reach the AI service: ' + (e && e.message || e));
+      });
+    }
+    go();
   });
 
   function zoomStep(f, sx, sy) {
