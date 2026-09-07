@@ -23,7 +23,7 @@
 <style>
   @font-face{
     font-family:"Dancing Script";
-    src:url("dancingscript.woff2?v=1i") format("woff2");
+    src:url("dancingscript.woff2?v=1j") format("woff2");
     font-weight:400 700; font-display:swap;
   }
   :root{
@@ -182,7 +182,7 @@
       <div class="t1">DSR Systems</div>
       <div class="t2">DSR Embroidery</div>
     </div>
-    <div class="ver">Version 1i</div>
+    <div class="ver">Version 1j</div>
   </div>
 
   <div class="scroll">
@@ -245,6 +245,19 @@
           <button class="mini" id="ovDel" type="button" style="flex:0 0 auto;">Delete</button>
         </div>
       </div>
+    </div>
+
+    <div id="embBar" hidden>
+      <div class="row wrap" style="padding-top:6px;">
+        <button class="mini" id="btnAiRender" type="button">&#10024; Render with AI</button>
+        <button class="mini" id="btnAiClear" type="button" hidden>Show simulated</button>
+      </div>
+      <div class="field">
+        <span>AI URL</span>
+        <input type="text" id="aiUrl" placeholder="https://&hellip;.workers.dev" autocapitalize="off" autocomplete="off" spellcheck="false"
+               style="flex:1 1 150px; min-width:110px; background:#111; color:var(--gold); border:1px solid var(--gold-deep); border-radius:6px; padding:5px 7px; font:inherit;">
+      </div>
+      <div class="subnote">A real AI render (Google &ldquo;Nano Banana&rdquo;) of your framed photo &ndash; needs a one-time free Cloudflare Worker. Without a URL this mode shows a simulated render. ~10&ndash;20&nbsp;s each.</div>
     </div>
 
     <div class="sect-label">Detail &ndash; stitch count</div>
@@ -332,8 +345,8 @@
 <div class="busy" id="busy"><div class="ring"></div><div class="msg" id="busyMsg">Working&hellip;</div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
-<script src="dmc.js?v=1i"></script>
-<script src="stitchengine.js?v=1i"></script>
+<script src="dmc.js?v=1j"></script>
+<script src="stitchengine.js?v=1j"></script>
 <script>
 (function () {
   'use strict';
@@ -343,7 +356,7 @@
 
   var LS = 'dsrEmbroidery';
   var opt = { detail: 120, colours: 12, matchDmc: true, auto: true, mode: 'colour',
-              count: 14, unit: 'in', colourPage: false, symWhite: true, size: 'free', noBg: false, pages: '1' };
+              count: 14, unit: 'in', colourPage: false, symWhite: true, size: 'free', noBg: false, pages: '1', aiUrl: '' };
 
   // preset finished sizes as [longer edge in, shorter edge in]
   var SIZE_IN = { '6x8': [8, 6], '8x10': [10, 8], 'A5': [8.27, 5.83], 'A4': [11.69, 8.27], 'A3': [16.54, 11.69] };
@@ -365,6 +378,12 @@
   var selId = null, uid = 1;
   var photoCanvas = document.createElement('canvas');   // cached photo (with matte)
   var lmap = { fit: 1, ox: 0, oy: 0 };          // frame -> screen (layout mode)
+  var aiRender = null;                          // { img: canvas, key: string } – last AI embroidery render
+
+  // identity of everything the AI render depends on (photo/frame/crop/overlays/cut-out)
+  function aiKey() {
+    return JSON.stringify({ f: frame, p: ptx, o: overlays, bg: !!(opt.noBg && cutId), w: origId && origId.width, h: origId && origId.height });
+  }
 
   var GLYPHS = ['heart', 'star', 'sparkle', 'flower', 'leaf', 'sun', 'moon', 'snow', 'circle', 'diamond', 'triangle', 'plus'];
   function drawGlyph(g, name, s) {
@@ -595,6 +614,8 @@
     if (!MODEBTN[opt.mode]) opt.mode = 'colour';
     Object.keys(MODEBTN).forEach(function (k) { $(MODEBTN[k]).classList.toggle('on', k === opt.mode); });
     $('layoutBar').hidden = opt.mode !== 'layout';
+    $('embBar').hidden = opt.mode !== 'embroidery';
+    $('aiUrl').value = opt.aiUrl || '';
     $('preview').classList.toggle('sticky', opt.mode === 'layout');
     $('btnUpdate').style.display = opt.auto ? 'none' : '';
     applySize();
@@ -672,9 +693,12 @@
     if (!chart) return;
     $('hint').style.display = 'none';
     $('pvTools').style.display = opt.mode === 'layout' ? 'none' : 'flex';
-    var c = opt.mode === 'embroidery'
-      ? E.renderEmbroidery(chart, cellPxFor('embroidery'))
-      : E.renderToCanvas(chart, opt.mode, cellPxFor(opt.mode));
+    var c;
+    if (opt.mode === 'embroidery') {
+      c = (aiRender && aiRender.key === aiKey()) ? aiRender.img : E.renderEmbroidery(chart, cellPxFor('embroidery'));
+    } else {
+      c = E.renderToCanvas(chart, opt.mode, cellPxFor(opt.mode));
+    }
     workCanvas.width = c.width; workCanvas.height = c.height;
     workCanvas.getContext('2d').drawImage(c, 0, 0);
     if (refit) fitPreview(); else renderPreview();
@@ -1012,11 +1036,13 @@
     opt.mode = m; save();
     Object.keys(MODEBTN).forEach(function (k) { $(MODEBTN[k]).classList.toggle('on', k === m); });
     $('layoutBar').hidden = m !== 'layout';
+    $('embBar').hidden = m !== 'embroidery';
+    if (m === 'embroidery') $('btnAiClear').hidden = !(aiRender && aiRender.key === aiKey());
     $('preview').classList.toggle('sticky', m === 'layout');
     updateTouchAction();
     if (m === 'layout') { $('pvTools').style.display = origId ? 'flex' : 'none'; buildPhotoCanvas(); renderLayout(); }
     else if (chart) {
-      if (m === 'embroidery') { busy(true, 'Rendering embroidery…'); setTimeout(function () { renderChart(true); busy(false); }, 15); }
+      if (m === 'embroidery') { busy(true, 'Rendering…'); setTimeout(function () { renderChart(true); busy(false); }, 15); }
       else renderChart(true);
     }
     else { $('pvTools').style.display = 'none'; }
@@ -1026,6 +1052,52 @@
   $('mStitch').addEventListener('click', function () { setMode('stitch'); });
   $('mSymbol').addEventListener('click', function () { setMode('symbol'); });
   $('mEmbroid').addEventListener('click', function () { setMode('embroidery'); });
+
+  /* ---------- AI embroidery render ---------- */
+  $('aiUrl').addEventListener('input', function () { opt.aiUrl = this.value.trim(); save(); });
+  $('btnAiClear').addEventListener('click', function () {
+    aiRender = null; $('btnAiClear').hidden = true;
+    if (opt.mode === 'embroidery') { busy(true, 'Rendering…'); setTimeout(function () { renderChart(true); busy(false); }, 15); }
+  });
+  $('btnAiRender').addEventListener('click', function () {
+    if (!origId) { status('Load a photo first.'); return; }
+    if (!opt.aiUrl) { status('Paste your AI render URL in the box below first.'); $('aiUrl').focus(); return; }
+    var src = composeSource();
+    var maxD = 1024, sc = Math.min(1, maxD / Math.max(src.width, src.height));
+    var cw = Math.round(src.width * sc), chh = Math.round(src.height * sc);
+    var t = document.createElement('canvas'); t.width = src.width; t.height = src.height;
+    t.getContext('2d').putImageData(src, 0, 0);
+    var s = document.createElement('canvas'); s.width = cw; s.height = chh;
+    var sg = s.getContext('2d'); sg.fillStyle = '#111'; sg.fillRect(0, 0, cw, chh);
+    sg.imageSmoothingQuality = 'high'; sg.drawImage(t, 0, 0, cw, chh);
+    var dataUrl = s.toDataURL('image/jpeg', 0.92);
+    var wantKey = aiKey();
+    busy(true, 'Rendering with AI… (10–20s)');
+    fetch(opt.aiUrl, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image: dataUrl,
+        extra: overlays.length ? 'Render any lettering or small motifs in the image as embroidered stitching too.' : ''
+      })
+    })
+      .then(function (r) { return r.json().catch(function () { return { error: 'Bad response (HTTP ' + r.status + ').' }; }); })
+      .then(function (j) {
+        if (!j || j.error || !j.image) { busy(false); status('AI render failed: ' + ((j && j.error) || 'no image returned')); return; }
+        var url = /^data:/.test(j.image) ? j.image : ('data:' + (j.mime || 'image/png') + ';base64,' + j.image);
+        var im = new Image();
+        im.onload = function () {
+          var cv = document.createElement('canvas'); cv.width = im.naturalWidth; cv.height = im.naturalHeight;
+          cv.getContext('2d').drawImage(im, 0, 0);
+          aiRender = { img: cv, key: wantKey, dataUrl: url };
+          $('btnAiClear').hidden = false;
+          busy(false); status('AI render ready.');
+          if (opt.mode === 'embroidery') renderChart(true);
+        };
+        im.onerror = function () { busy(false); status('AI returned an unreadable image.'); };
+        im.src = url;
+      })
+      .catch(function (e) { busy(false); status('Could not reach the AI service: ' + (e && e.message || e)); });
+  });
 
   function zoomStep(f, sx, sy) {
     var s = pvSize();
@@ -1174,8 +1246,13 @@
 
   function chartPng(cb) {
     var c;
-    if (opt.mode === 'embroidery') c = E.renderEmbroidery(chart, Math.max(14, Math.min(26, Math.round(3200 / chart.w))));
-    else c = E.renderToCanvas(chart, opt.mode, opt.mode === 'symbol' ? 22 : (opt.mode === 'stitch' ? 16 : 12));
+    if (opt.mode === 'embroidery') {
+      c = (aiRender && aiRender.key === aiKey())
+        ? aiRender.img
+        : E.renderEmbroidery(chart, Math.max(14, Math.min(26, Math.round(3200 / chart.w))));
+    } else {
+      c = E.renderToCanvas(chart, opt.mode, opt.mode === 'symbol' ? 22 : (opt.mode === 'stitch' ? 16 : 12));
+    }
     c.toBlob(function (b) { cb(b, c); }, 'image/png');
   }
   function pngName() { return 'embroidery_' + opt.mode + '_' + chart.w + 'x' + chart.h + '.png'; }
@@ -1248,13 +1325,14 @@
       var cut = null;
       if (cutId) cut = idToDataURL(cutId, 'image/png', 1, MAX);
       var proj = {
-        app: 'DSR Embroidery', v: 4, saved: new Date().toISOString(),
+        app: 'DSR Embroidery', v: 5, saved: new Date().toISOString(),
         photo: photo.url,
         cut: cut ? cut.url : null, cutHow: cutHow,
         // ptx.scale is relative to the full photo; rescale to the stored (downscaled) one
         ptx: { scale: ptx.scale / photo.scale, ox: ptx.ox, oy: ptx.oy },
         frame: { w: frame.w, h: frame.h },
         overlays: overlays,
+        aiRender: (aiRender && aiRender.key === aiKey()) ? aiRender.dataUrl : null,
         opt: opt
       };
       var blob = new Blob([JSON.stringify(proj)], { type: 'application/json' });
@@ -1304,16 +1382,33 @@
       ? 'Subject cut out – blank squares = no stitch. Tap again to undo.'
       : 'Cuts out the main subject. Tap again to undo.';
     $('layoutBar').hidden = opt.mode !== 'layout';
+    $('embBar').hidden = opt.mode !== 'embroidery';
+    $('aiUrl').value = opt.aiUrl || '';
     $('preview').classList.toggle('sticky', opt.mode === 'layout');
     $('hint').style.display = 'none';
     updateTouchAction();
 
-    ensureScriptFont(function () {
-      busy(false);
-      if (opt.mode === 'layout') renderLayout();
-      runBuild();
-      status('Project opened.');
-    });
+    aiRender = null;
+    var afterAi = function () {
+      ensureScriptFont(function () {
+        busy(false);
+        if (opt.mode === 'layout') renderLayout();
+        runBuild();
+        status('Project opened.');
+      });
+    };
+    if (proj.aiRender) {
+      var im = new Image();
+      im.onload = function () {
+        var cv = document.createElement('canvas'); cv.width = im.naturalWidth; cv.height = im.naturalHeight;
+        cv.getContext('2d').drawImage(im, 0, 0);
+        aiRender = { img: cv, key: aiKey(), dataUrl: proj.aiRender };
+        $('btnAiClear').hidden = opt.mode !== 'embroidery';
+        afterAi();
+      };
+      im.onerror = afterAi;
+      im.src = proj.aiRender;
+    } else afterAi();
   }
   $('inProject').addEventListener('change', function (e) { importProject(e.target.files[0]); e.target.value = ''; });
 

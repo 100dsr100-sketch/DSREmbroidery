@@ -1,8 +1,8 @@
 /* DSR Embroidery - offline shell cache.
    Same-origin: network-first (so a new deploy is picked up immediately),
    falling back to cache when offline. Cross-origin (CDN model/wasm): passthrough. */
-var CACHE = 'dsr-embroidery-v10';
-var SHELL = ['./', './index.html', './stitchengine.js?v=1i', './dmc.js?v=1i', './dancingscript.woff2?v=1i', './manifest.json', './icon.svg'];
+var CACHE = 'dsr-embroidery-v11';
+var SHELL = ['./', './index.html', './stitchengine.js?v=1j', './dmc.js?v=1j', './dancingscript.woff2?v=1j', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(
