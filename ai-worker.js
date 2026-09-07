@@ -1,27 +1,35 @@
 /* DSR Embroidery – AI render proxy (Cloudflare Worker)
  * ---------------------------------------------------------------------------
  * Turns the app's framed photo into an "embroidery" render.
- * Tries, in order:
- *   1. Hugging Face Inference Providers image-to-image  (needs HF_TOKEN)
- *   2. Cloudflare Workers AI img2img                    (needs an "AI" binding)
- *   3. Pollinations                                     (keyless, text-driven)
+ * Tries, in order (first one that's configured + works wins):
+ *   1. Leonardo.ai image-to-image   (needs LEONARDO_API_KEY – $5 free credit)
+ *   2. Hugging Face image-to-image  (needs HF_TOKEN – tiny free credit)
+ *   3. Cloudflare Workers AI img2img(needs an "AI" binding)
+ *   4. Pollinations                 (keyless, text-driven)
  *
  * DEPLOY
  *   1. Edit code: paste this whole file over what's there, Deploy.
- *   2. Settings -> Variables and Secrets -> Add:
- *        type Secret,  name HF_TOKEN,  value = a Hugging Face token with the
- *        "Inference Providers" permission (huggingface.co/settings/tokens/new
- *         ?ownUserPermissions=inference.serverless.write&tokenType=fineGrained)
+ *   2. Settings -> Variables and Secrets -> Add (type Secret):
+ *        LEONARDO_API_KEY = key from  app.leonardo.ai -> API Access -> Create Key
+ *      (optional) HF_TOKEN = a Hugging Face fine-grained inference token
  *   3. (optional) Bindings tab -> Add binding -> Workers AI, name it AI.
  *   4. Copy the Worker URL into the app (Embroidery -> "AI URL").
  *
  * Optional Worker variables (Settings -> Variables, type Text):
- *   HF_MODEL     force one HF model (default list below)
- *   AI_MODEL / AI_STRENGTH (0.6) / AI_STEPS (20)   – Workers-AI tuning
+ *   LEONARDO_MODEL   force a Leonardo model id (else it auto-picks an SDXL one)
+ *   LEONARDO_STRENGTH  init_strength 0.1-0.9, default 0.35 (lower = closer to photo)
+ *   HF_MODEL / AI_MODEL / AI_STRENGTH (0.6) / AI_STEPS (20)
  *   NO_POLLINATIONS  "1" disables the keyless fallback
  *   ALLOWED_ORIGINS  e.g. https://100dsr100-sketch.github.io,http://localhost
  * ---------------------------------------------------------------------------
  */
+
+const LEO = 'https://cloud.leonardo.ai/api/rest/v1';
+const LEO_MODELS_FALLBACK = [
+  '2067ae52-33fd-4a82-bb92-c2c55e7d2786', // AlbedoBase XL
+  'aa77f04e-3eec-4034-9c07-d0f619684628', // Kino XL
+  '1e60896f-3c26-4296-8ecc-53e2afecc132'  // Leonardo Diffusion XL
+];
 
 // Hugging Face image-to-image / image-editing models, tried in order.
 const HF_MODELS = [
@@ -81,6 +89,60 @@ async function toBuf(out) {
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// Leonardo.ai image-to-image: upload init image -> start generation -> poll -> fetch result
+async function tryLeonardo(env, jpgBytes, prompt, errs) {
+  const H = { Authorization: 'Bearer ' + env.LEONARDO_API_KEY, 'content-type': 'application/json', accept: 'application/json' };
+  const strength = Math.max(0.1, Math.min(0.9, parseFloat(env.LEONARDO_STRENGTH || '0.35')));
+
+  let up;
+  try {
+    const r = await fetch(LEO + '/init-image', { method: 'POST', headers: H, body: JSON.stringify({ extension: 'jpg' }) });
+    if (!r.ok) { errs.push('leo/init: HTTP ' + r.status + ' ' + (await r.text()).slice(0, 180)); return null; }
+    up = (await r.json()).uploadInitImage;
+  } catch (e) { errs.push('leo/init: ' + ((e && e.message) || e)); return null; }
+  if (!up || !up.url || !up.id) { errs.push('leo/init: no upload slot'); return null; }
+
+  try {
+    const fields = typeof up.fields === 'string' ? JSON.parse(up.fields) : (up.fields || {});
+    const fd = new FormData();
+    for (const k in fields) fd.append(k, fields[k]);
+    fd.append('file', new Blob([jpgBytes], { type: 'image/jpeg' }), 'src.jpg');
+    const ur = await fetch(up.url, { method: 'POST', body: fd });
+    if (!ur.ok && ur.status !== 204) { errs.push('leo/upload: HTTP ' + ur.status + ' ' + (await ur.text()).slice(0, 160)); return null; }
+  } catch (e) { errs.push('leo/upload: ' + ((e && e.message) || e)); return null; }
+
+  const models = env.LEONARDO_MODEL ? [env.LEONARDO_MODEL] : LEO_MODELS_FALLBACK;
+  let genId = null, usedModel = '';
+  for (const modelId of models) {
+    try {
+      const gr = await fetch(LEO + '/generations', {
+        method: 'POST', headers: H,
+        body: JSON.stringify({ prompt, modelId, init_image_id: up.id, init_strength: strength, num_images: 1, width: 768, height: 768, public: false })
+      });
+      const gj = await gr.json().catch(() => ({}));
+      if (gr.ok && gj.sdGenerationJob && gj.sdGenerationJob.generationId) { genId = gj.sdGenerationJob.generationId; usedModel = modelId; break; }
+      errs.push('leo/gen(' + modelId.slice(0, 8) + '): HTTP ' + gr.status + ' ' + JSON.stringify(gj).slice(0, 200));
+    } catch (e) { errs.push('leo/gen: ' + ((e && e.message) || e)); }
+  }
+  if (!genId) return null;
+
+  for (let i = 0; i < 26; i++) {
+    await sleep(3000);
+    try {
+      const pr = await fetch(LEO + '/generations/' + genId, { headers: H });
+      const g = (await pr.json().catch(() => ({}))).generations_by_pk;
+      if (g && g.status === 'FAILED') { errs.push('leo/gen: FAILED'); return null; }
+      if (g && g.status === 'COMPLETE' && g.generated_images && g.generated_images[0] && g.generated_images[0].url) {
+        const ir = await fetch(g.generated_images[0].url);
+        if (ir.ok) { const buf = await ir.arrayBuffer(); if (buf.byteLength > 500) return { buf, model: 'leonardo/' + usedModel.slice(0, 8) }; }
+        errs.push('leo/image: HTTP ' + ir.status); return null;
+      }
+    } catch (e) { errs.push('leo/poll: ' + ((e && e.message) || e)); }
+  }
+  errs.push('leo/poll: timed out');
+  return null;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -110,8 +172,17 @@ export default {
     const errs = [];
 
     const okImage = (b64, mime, model) => json({ image: b64, mime, model, tried: errs }, 200, ch);
+    const editPrompt = HF_PROMPT + (body.extra ? ' ' + body.extra : '');
 
-    // ---- 1. Hugging Face image-to-image ----
+    // ---- 1. Leonardo.ai image-to-image ----
+    if (env.LEONARDO_API_KEY) {
+      try {
+        const lo = await tryLeonardo(env, src, editPrompt, errs);
+        if (lo) return okImage(b64FromBuf(lo.buf), 'image/jpeg', lo.model);
+      } catch (e) { errs.push('leo: ' + ((e && e.message) || e)); }
+    }
+
+    // ---- 2. Hugging Face image-to-image ----
     if (env.HF_TOKEN) {
       const list = env.HF_MODEL ? [env.HF_MODEL] : HF_MODELS;
       const hfPrompt = HF_PROMPT + (body.extra ? ' ' + body.extra : '');
@@ -139,7 +210,7 @@ export default {
       }
     }
 
-    // ---- 2. Cloudflare Workers AI ----
+    // ---- 3. Cloudflare Workers AI ----
     if (env.AI) {
       const list = (body.model || env.AI_MODEL) ? [[body.model || env.AI_MODEL, 'b64']] : CF_MODELS;
       for (const [model, how] of list) {
@@ -161,7 +232,7 @@ export default {
       errs.push('no AI binding');
     }
 
-    // ---- 3. Pollinations (keyless), one retry on 429/5xx ----
+    // ---- 4. Pollinations (keyless), one retry on 429/5xx ----
     if (env.NO_POLLINATIONS !== '1') {
       const id = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + '' + Math.random());
       const stashUrl = url.origin + '/_img/' + id + '.jpg';
