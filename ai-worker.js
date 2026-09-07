@@ -123,8 +123,11 @@ export default {
       await caches.default.put(new Request(stashUrl), new Response(src, {
         headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=300' }
       }));
+      // fresh seed + nonce so Pollinations can't hand back a cached generation
+      const seed = Math.floor(Math.random() * 2147483647);
       const p = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) +
-        '?width=768&height=768&nologo=true&safe=false&model=flux&image=' + encodeURIComponent(stashUrl);
+        '?width=768&height=768&nologo=true&nofeed=true&safe=false&model=flux&seed=' + seed +
+        '&strength=' + strength + '&image=' + encodeURIComponent(stashUrl) + '&_=' + seed;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const pr = await fetch(p, { headers: { Accept: 'image/*' } });
