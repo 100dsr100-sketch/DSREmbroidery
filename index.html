@@ -23,7 +23,7 @@
 <style>
   @font-face{
     font-family:"Dancing Script";
-    src:url("dancingscript.woff2?v=1j") format("woff2");
+    src:url("dancingscript.woff2?v=1k") format("woff2");
     font-weight:400 700; font-display:swap;
   }
   :root{
@@ -182,7 +182,7 @@
       <div class="t1">DSR Systems</div>
       <div class="t2">DSR Embroidery</div>
     </div>
-    <div class="ver">Version 1j</div>
+    <div class="ver">Version 1k</div>
   </div>
 
   <div class="scroll">
@@ -257,7 +257,7 @@
         <input type="text" id="aiUrl" placeholder="https://&hellip;.workers.dev" autocapitalize="off" autocomplete="off" spellcheck="false"
                style="flex:1 1 150px; min-width:110px; background:#111; color:var(--gold); border:1px solid var(--gold-deep); border-radius:6px; padding:5px 7px; font:inherit;">
       </div>
-      <div class="subnote">A real AI render (Google &ldquo;Nano Banana&rdquo;) of your framed photo &ndash; needs a one-time free Cloudflare Worker. Without a URL this mode shows a simulated render. ~10&ndash;20&nbsp;s each.</div>
+      <div class="subnote">A real AI render of your framed photo via a one-time free Cloudflare Worker (Workers AI). Without a URL this mode shows a simulated render. ~10&ndash;25&nbsp;s each.</div>
     </div>
 
     <div class="sect-label">Detail &ndash; stitch count</div>
@@ -345,8 +345,8 @@
 <div class="busy" id="busy"><div class="ring"></div><div class="msg" id="busyMsg">Working&hellip;</div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
-<script src="dmc.js?v=1j"></script>
-<script src="stitchengine.js?v=1j"></script>
+<script src="dmc.js?v=1k"></script>
+<script src="stitchengine.js?v=1k"></script>
 <script>
 (function () {
   'use strict';
@@ -1063,7 +1063,7 @@
     if (!origId) { status('Load a photo first.'); return; }
     if (!opt.aiUrl) { status('Paste your AI render URL in the box below first.'); $('aiUrl').focus(); return; }
     var src = composeSource();
-    var maxD = 1024, sc = Math.min(1, maxD / Math.max(src.width, src.height));
+    var maxD = 768, sc = Math.min(1, maxD / Math.max(src.width, src.height));
     var cw = Math.round(src.width * sc), chh = Math.round(src.height * sc);
     var t = document.createElement('canvas'); t.width = src.width; t.height = src.height;
     t.getContext('2d').putImageData(src, 0, 0);
