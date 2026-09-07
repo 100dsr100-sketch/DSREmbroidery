@@ -144,7 +144,7 @@
       <div class="t1">DSR Systems</div>
       <div class="t2">DSR Embroidery</div>
     </div>
-    <div class="ver">Version 1c</div>
+    <div class="ver">Version 1d</div>
   </div>
 
   <div class="scroll">
@@ -158,7 +158,7 @@
 
     <div class="row wrap" style="padding-top:4px;">
       <button class="chip" id="chNoBg" type="button">&#9986; Remove background</button>
-      <span class="subnote" id="nBg" style="align-self:center;">Best on a plain / even backdrop. Tap again to undo.</span>
+      <span class="subnote" id="nBg" style="align-self:center;">Cuts out the main subject (AI). First use downloads a ~40&nbsp;MB model, then works offline. Tap again to undo.</span>
     </div>
 
     <div class="sect-label">Preview</div>
@@ -256,8 +256,8 @@
 <div class="busy" id="busy"><div class="ring"></div><div class="msg" id="busyMsg">Working&hellip;</div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
-<script src="dmc.js?v=1c"></script>
-<script src="stitchengine.js?v=1c"></script>
+<script src="dmc.js?v=1d"></script>
+<script src="stitchengine.js?v=1d"></script>
 <script>
 (function () {
   'use strict';
@@ -282,6 +282,41 @@
 
   function busy(on, msg) { $('busyMsg').textContent = msg || 'Working…'; $('busy').classList.toggle('show', !!on); }
   function yield_() { return new Promise(function (r) { setTimeout(r, 20); }); }
+
+  /* ---------- background removal ---------- */
+  var imgly = null;   // lazily-imported @imgly/background-removal module
+
+  function idToBlob(id, maxDim) {
+    var s = Math.min(1, maxDim / Math.max(id.width, id.height));
+    var w = Math.max(1, Math.round(id.width * s)), h = Math.max(1, Math.round(id.height * s));
+    var src = document.createElement('canvas'); src.width = id.width; src.height = id.height;
+    src.getContext('2d').putImageData(id, 0, 0);
+    var c = document.createElement('canvas'); c.width = w; c.height = h;
+    var g = c.getContext('2d'); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(src, 0, 0, w, h);
+    return new Promise(function (res) { c.toBlob(res, 'image/png'); });
+  }
+
+  // AI subject cut-out: works on any background, leaves a transparent matte.
+  async function aiCutout(id, onMsg) {
+    var input = await idToBlob(id, 1600);
+    if (!imgly) {
+      onMsg('Loading AI model (first time only)…');
+      imgly = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/dist/index.mjs');
+    }
+    var cfg = {
+      model: 'isnet_quint8',
+      output: { format: 'image/png' },
+      progress: function (key, cur, tot) {
+        if (tot && /fetch|download|resource|model/i.test(key)) onMsg('Downloading AI model… ' + Math.round(cur / tot * 100) + '%');
+        else onMsg('Finding the subject…');
+      }
+    };
+    var out;
+    try { out = await imgly.removeBackground(input, Object.assign({ device: 'gpu' }, cfg)); }
+    catch (e) { out = await imgly.removeBackground(input, Object.assign({ device: 'cpu' }, cfg)); }
+    return await E.decodeToImageData(out);
+  }
 
   /* ---------- controls reflect saved opt ---------- */
   function syncControls() {
@@ -544,18 +579,35 @@
   });
   $('chNoBg').addEventListener('click', function () {
     if (!origId) { status('Choose a photo first.'); return; }
-    opt.noBg = !opt.noBg; this.classList.toggle('on', opt.noBg); save();
-    busy(true, opt.noBg ? 'Removing background…' : 'Restoring background…');
-    setTimeout(function () {
+    var on = !opt.noBg;
+    opt.noBg = on; this.classList.toggle('on', on); save();
+    if (!on) {                                   // undo
+      srcId = origId;
+      $('nBg').textContent = 'Cuts out the main subject. Tap again to undo.';
+      busy(true, 'Restoring background…');
+      setTimeout(function () { busy(false); runBuild(); }, 20);
+      return;
+    }
+    (async function () {
+      busy(true, 'Removing background…');
+      var usedAi = false;
       try {
-        srcId = opt.noBg ? E.removeBackground(origId) : origId;
-      } catch (e) { srcId = origId; opt.noBg = false; $('chNoBg').classList.remove('on'); }
+        if (navigator.onLine) {
+          srcId = await aiCutout(origId, function (m) { busy(true, m); });
+          usedAi = true;
+        } else {
+          srcId = E.removeBackground(origId);
+        }
+      } catch (e) {
+        try { srcId = E.removeBackground(origId); }
+        catch (e2) { srcId = origId; opt.noBg = false; $('chNoBg').classList.remove('on'); }
+      }
       busy(false);
-      $('nBg').textContent = opt.noBg
-        ? 'Background dropped (blank = no stitch). Tap again to undo.'
-        : 'Best on a plain / even backdrop. Tap again to undo.';
+      $('nBg').textContent = usedAi
+        ? 'Subject cut out with AI – blank squares = no stitch. Tap again to undo.'
+        : 'Plain backdrop removed (AI needs internet the first time). Tap again to undo.';
       runBuild();
-    }, 20);
+    })();
   });
   $('chColourPage').addEventListener('click', function () { opt.colourPage = !opt.colourPage; this.classList.toggle('on', opt.colourPage); save(); });
   $('chSymWhite').addEventListener('click', function () { opt.symWhite = !opt.symWhite; this.classList.toggle('on', opt.symWhite); save(); });
