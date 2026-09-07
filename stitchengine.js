@@ -90,6 +90,63 @@
     return c;
   }
 
+  // Remove a plain-ish background: flood-fill inward from the border, clearing
+  // pixels close in colour to the border. Returns a NEW (down-scaled) ImageData
+  // with those pixels transparent. The caller keeps the original for undo.
+  function removeBackground(srcId, opts) {
+    opts = opts || {};
+    var MAX = 900;
+    var sc = Math.min(1, MAX / Math.max(srcId.width, srcId.height));
+    var w = Math.max(1, Math.round(srcId.width * sc));
+    var h = Math.max(1, Math.round(srcId.height * sc));
+    var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    var cx = cv.getContext('2d');
+    cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high';
+    cx.drawImage(idToCanvas(srcId), 0, 0, w, h);
+    var src = cx.getImageData(0, 0, w, h).data;
+    var out = new Uint8ClampedArray(src);
+    var n = w * h;
+
+    var sL = 0, sA = 0, sB = 0, cN = 0;
+    function samp(x, y) {
+      var o = (y * w + x) * 4;
+      var l = rgb2lab(src[o], src[o + 1], src[o + 2]);
+      sL += l[0]; sA += l[1]; sB += l[2]; cN++;
+    }
+    var sx = Math.max(1, w >> 6), sy = Math.max(1, h >> 6);
+    for (var x = 0; x < w; x += sx) { samp(x, 0); samp(x, h - 1); }
+    for (var y = 0; y < h; y += sy) { samp(0, y); samp(w - 1, y); }
+    var ref = [sL / cN, sA / cN, sB / cN];
+    var tol = opts.tolerance != null ? opts.tolerance : 16;
+    var tol2 = tol * tol;
+
+    function close(o) {
+      var l = rgb2lab(src[o], src[o + 1], src[o + 2]);
+      var dl = l[0] - ref[0], da = l[1] - ref[1], db = l[2] - ref[2];
+      return dl * dl + da * da + db * db <= tol2;
+    }
+
+    var seen = new Uint8Array(n);
+    var stack = [];
+    for (var bx = 0; bx < w; bx++) { stack.push(bx, (h - 1) * w + bx); }
+    for (var by = 0; by < h; by++) { stack.push(by * w, by * w + w - 1); }
+
+    while (stack.length) {
+      var p = stack.pop();
+      if (p < 0 || p >= n || seen[p]) continue;
+      seen[p] = 1;
+      var o4 = p * 4;
+      if (!close(o4)) continue;
+      out[o4 + 3] = 0;
+      var qx = p % w;
+      if (qx > 0) stack.push(p - 1);
+      if (qx < w - 1) stack.push(p + 1);
+      if (p >= w) stack.push(p - w);
+      if (p < n - w) stack.push(p + w);
+    }
+    return new ImageData(out, w, h);
+  }
+
   // progressive box-average downscale to a small grid
   function downscale(srcCanvas, gw, gh) {
     var cur = srcCanvas, cw = cur.width, ch = cur.height;
@@ -123,21 +180,30 @@
 
     var labs = new Float32Array(n * 3);
     var px = new Uint8Array(n * 3);
+    var blank = new Uint8Array(n);   // 1 = transparent (background removed) -> no stitch
+    var nBlank = 0;
     for (var i = 0; i < n; i++) {
+      if (data[i * 4 + 3] < 128) { blank[i] = 1; nBlank++; continue; }
       var r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
       px[i * 3] = r; px[i * 3 + 1] = g; px[i * 3 + 2] = b;
       var L = rgb2lab(r, g, b);
       labs[i * 3] = L[0]; labs[i * 3 + 1] = L[1]; labs[i * 3 + 2] = L[2];
     }
+    if (nBlank >= n - 3) { blank = new Uint8Array(n); nBlank = 0; }   // nothing left -> ignore mask
 
-    // sample subset for the clustering loop
+    // sample subset for the clustering loop (from non-blank cells only)
     var maxS = 12000;
-    var samp = n <= maxS ? null : (function () {
-      var a = new Int32Array(maxS);
-      for (var s = 0; s < maxS; s++) a[s] = (Math.random() * n) | 0;
-      return a;
-    })();
-    var sc = samp ? maxS : n;
+    var samp = null, valid = null;
+    if (nBlank) {
+      valid = [];
+      for (var vv = 0; vv < n; vv++) if (!blank[vv]) valid.push(vv);
+      samp = new Int32Array(Math.min(maxS, valid.length));
+      for (var vs = 0; vs < samp.length; vs++) samp[vs] = valid[(Math.random() * valid.length) | 0];
+    } else if (n > maxS) {
+      samp = new Int32Array(maxS);
+      for (var s = 0; s < maxS; s++) samp[s] = (Math.random() * n) | 0;
+    }
+    var sc = samp ? samp.length : n;
     var si = function (k) { return (samp ? samp[k] : k); };
 
     // k-means++ seeding
@@ -212,6 +278,7 @@
     var idxArr = new Int16Array(n);
     var used = new Int32Array(cand.length);
     for (var m = 0; m < n; m++) {
+      if (blank[m]) { idxArr[m] = -1; continue; }
       var mo = m * 3, bb = 0, bbd = 1e18;
       for (var j = 0; j < cand.length; j++) {
         var cl = cand[j].lab;
@@ -239,9 +306,12 @@
         count: used[oldIdx]
       };
     });
-    for (var y2 = 0; y2 < n; y2++) idxArr[y2] = remap[idxArr[y2]];
+    for (var y2 = 0; y2 < n; y2++) if (idxArr[y2] >= 0) idxArr[y2] = remap[idxArr[y2]];
 
-    return { w: gw, h: gh, idx: idxArr, palette: palette, srcW: srcId.width, srcH: srcId.height };
+    var stitched = 0;
+    palette.forEach(function (p) { stitched += p.count; });
+    return { w: gw, h: gh, idx: idxArr, palette: palette, stitched: stitched,
+             blanks: n - stitched, srcW: srcId.width, srcH: srcId.height };
   }
 
   /* ---------- on-screen rendering ---------- */
@@ -260,8 +330,15 @@
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        var pi = id[y * w + x]; if (pi < 0) continue;
-        var p = P[pi], X = x * cellPx, Y = y * cellPx;
+        var pi = id[y * w + x], X = x * cellPx, Y = y * cellPx;
+        if (pi < 0) {                       // removed-background square = no stitch
+          if (mode !== 'symbol') {
+            g.fillStyle = ((x + y) & 1) ? '#d8d8d8' : '#eaeaea';
+            g.fillRect(X, Y, cellPx, cellPx);
+          }
+          continue;
+        }
+        var p = P[pi];
         if (mode === 'colour') {
           g.fillStyle = p.hex; g.fillRect(X, Y, cellPx, cellPx);
         } else if (mode === 'stitch') {
@@ -308,6 +385,71 @@
       g.stroke();
     }
     return c;
+  }
+
+  /* ---------- recommended stitches ---------- */
+
+  function stitchAdvice(chart, count) {
+    count = +count || 14;
+    var P = chart.palette, total = chart.stitched || (chart.w * chart.h);
+    var max = 0, dark = null;
+    P.forEach(function (p) {
+      if (p.count > max) max = p.count;
+      var l = lum(p.r, p.g, p.b);
+      if (l < 55 && (!dark || l < lum(dark.r, dark.g, dark.b))) dark = p;
+    });
+    var maxPct = total ? Math.round(max / total * 100) : 0;
+    var a = [];
+    a.push('Full cross-stitch throughout: 2 strands of stranded cotton on ' + count + '-count Aida (or 28-count evenweave worked over 2 threads). One chart square = one full cross-stitch, and keep every top stitch crossing the same way.');
+    if (dark && P.length >= 5)
+      a.push('Add back-stitch outlines last, 1 strand of the darkest shade (DMC ' + dark.code + ' ' + dark.name + '), around the main shapes to sharpen the picture.');
+    if (maxPct >= 35)
+      a.push('The largest colour is about ' + maxPct + '% of the design; if you want it faster and flatter, work that area in half cross-stitch / tent stitch instead of full crosses.');
+    if (chart.blanks > total * 0.04)
+      a.push('Blank squares (removed background) are left unstitched: mount the finished piece on a plain fabric or felt so the shape stands out.');
+    if (chart.w > 180 || P.length > 24)
+      a.push('This is a fine chart (' + chart.w + ' wide, ' + P.length + ' colours). A lower Detail or Colour-density setting stitches up quicker and reads better from a distance.');
+    a.push('Whole stitches only, so curves look slightly stepped: raise Detail for smoother edges, lower it for a bolder, quicker piece. French knots or a few stray back-stitches add tiny highlights (eyes, sparkle).');
+    return a;
+  }
+
+  // Coarsen a finished chart by an integer factor (majority vote per block),
+  // keeping the same DMC palette. Used to fit the printed pattern onto few pages.
+  function shrinkChart(chart, f) {
+    if (f <= 1) return chart;
+    var sw = chart.w, sh = chart.h, src = chart.idx, K = chart.palette.length;
+    var w = Math.ceil(sw / f), h = Math.ceil(sh / f);
+    var idx = new Int16Array(w * h), used = new Int32Array(K), tally = new Int32Array(K);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        for (var kk = 0; kk < K; kk++) tally[kk] = 0;
+        var best = -1, bestN = 0, blank = 0, tot = 0;
+        var y1 = Math.min(sh, y * f + f), x1 = Math.min(sw, x * f + f);
+        for (var yy = y * f; yy < y1; yy++) {
+          for (var xx = x * f; xx < x1; xx++) {
+            var v = src[yy * sw + xx]; tot++;
+            if (v < 0) { blank++; continue; }
+            if (++tally[v] > bestN) { bestN = tally[v]; best = v; }
+          }
+        }
+        var val = (blank * 2 > tot) ? -1 : best;
+        idx[y * w + x] = val;
+        if (val >= 0) used[val]++;
+      }
+    }
+    var order = [];
+    for (var t = 0; t < K; t++) if (used[t]) order.push(t);
+    order.sort(function (a, b) { return used[b] - used[a]; });
+    var remap = new Int16Array(K).fill(-1);
+    var palette = order.map(function (old, ni) {
+      remap[old] = ni;
+      var p = chart.palette[old];
+      return { r: p.r, g: p.g, b: p.b, hex: p.hex, code: p.code, name: p.name, exact: p.exact, symbol: SYMBOLS[ni] || '?', count: used[old] };
+    });
+    for (var m = 0; m < idx.length; m++) if (idx[m] >= 0) idx[m] = remap[idx[m]];
+    var stitched = 0; palette.forEach(function (p) { stitched += p.count; });
+    return { w: w, h: h, idx: idx, palette: palette, stitched: stitched,
+             blanks: idx.length - stitched, srcW: chart.srcW, srcH: chart.srcH };
   }
 
   /* ---------- printable document ---------- */
@@ -370,6 +512,16 @@
     var includeColour = !!opts.includeColour;
     var title = opts.title || 'Embroidery chart';
 
+    // Fit the printed pattern onto a page budget by coarsening the chart.
+    var TC = 50, TR = 70;
+    var fullW = chart.w, fullH = chart.h, reduced = false;
+    var maxPages = opts.maxPages | 0;
+    if (maxPages > 0) {
+      var f = 1;
+      while (Math.ceil(Math.ceil(chart.w / f) / TC) * Math.ceil(Math.ceil(chart.h / f) / TR) > maxPages) f++;
+      if (f > 1) { chart = shrinkChart(chart, f); reduced = true; }
+    }
+
     var totalStitches = 0, P = chart.palette;
     P.forEach(function (p) { totalStitches += p.count; });
     var wIn = chart.w / count, hIn = chart.h / count;
@@ -388,7 +540,6 @@
     }).join('');
 
     // tiles
-    var TC = 50, TR = 70;
     function pages(white) {
       var out = '';
       for (var ty = 0; ty < chart.h; ty += TR) {
@@ -422,18 +573,24 @@
       '.approx,.note{color:#a60;font-size:11px}' +
       '.plabel{font-size:11px;font-weight:700;margin:14px 0 4px}' +
       'img.tile{display:block;width:100%;max-width:940px;border:1px solid #000;height:auto}' +
+      '.adv{font-size:12px;line-height:1.5;padding-left:18px}.adv li{margin:4px 0}' +
+      '@page{margin:12mm}' +
       '@media print{.bar{display:none}.wrap{padding:0}.page{page-break-after:always}img.tile{max-width:100%}}' +
       '</style></head><body>' +
-      '<div class="bar"><button onclick="window.print()">Print / Save as PDF</button><span>Use your browser\'s print dialog. Choose &ldquo;Save as PDF&rdquo; for a file.</span></div>' +
+      '<div class="bar"><button onclick="window.print()">Print / Save as PDF</button><span>In the print dialog set scale to <b>100% / Actual size</b> (not &ldquo;Fit&rdquo;) so the chart pages line up. Choose &ldquo;Save as PDF&rdquo; for a file.</span></div>' +
       '<div class="wrap">' +
       '<h1>' + esc(title) + '</h1>' +
       '<div class="meta">' +
-      '<div><b>Chart size</b> ' + chart.w + ' &times; ' + chart.h + ' stitches</div>' +
-      '<div><b>Finished size</b> ' + toU(wIn) + ' &times; ' + toU(hIn) + ' ' + unit + ' on ' + count + '-count fabric</div>' +
-      '<div><b>Total stitches</b> ' + totalStitches + '</div>' +
+      '<div><b>Chart size</b> ' + chart.w + ' &times; ' + chart.h + ' stitches' +
+        (reduced ? ' &nbsp;<span class="note">(reduced from ' + fullW + ' &times; ' + fullH + ' to fit ' + maxPages + ' page' + (maxPages > 1 ? 's' : '') + ' &ndash; pick a lower fabric count to keep the finished size up, or &ldquo;Full detail&rdquo; for the fine chart)</span>' : '') + '</div>' +
+      '<div><b>Finished size</b> ' + toU(wIn) + ' &times; ' + toU(hIn) + ' ' + unit + ' on ' + count + '-count fabric' +
+        (opts.finishedTarget ? ' &nbsp;(fit to ' + esc(opts.finishedTarget) + ')' : '') + '</div>' +
+      '<div><b>Total stitches</b> ' + totalStitches + (chart.blanks ? ' &nbsp;(' + chart.blanks + ' blank squares)' : '') + '</div>' +
       '<div><b>Thread colours</b> ' + P.length + ' DMC shade(s)</div>' +
       '</div>' +
       '<img class="pv" src="' + preview + '" alt="colour preview">' +
+      '<h2>Recommended stitches</h2><ul class="adv"><li>' +
+      stitchAdvice(chart, count).map(esc).join('</li><li>') + '</li></ul>' +
       '<h2>Thread key</h2>' +
       '<table><thead><tr><th>Colour</th><th>Sym</th><th>DMC</th><th>Name</th><th class="num">Stitches</th><th class="num">Skeins*</th></tr></thead><tbody>' + legend + '</tbody></table>' +
       '<p class="note">* Rough skein estimate (~1700 full cross-stitches per skein, 2 strands on 14-count). DMC numbers marked &ldquo;≈&rdquo; are the nearest match, not exact. Thread RGB values are community approximations &ndash; check against a real DMC shade card before buying.</p>' +
@@ -444,8 +601,10 @@
 
   window.StitchEngine = {
     decodeToImageData: decodeToImageData,
+    removeBackground: removeBackground,
     build: build,
     renderToCanvas: renderToCanvas,
+    stitchAdvice: stitchAdvice,
     buildPrintDoc: buildPrintDoc
   };
 })();

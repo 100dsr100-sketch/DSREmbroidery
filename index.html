@@ -99,6 +99,11 @@
     width:22px; height:22px; border-radius:50%; background:var(--gold); border:2px solid #7a6410;
   }
   .subnote{font-size:11px; color:var(--gold-deep); padding:0 12px 2px;}
+  input[type=range]:disabled{opacity:.4;}
+  .adv{list-style:none; margin:0; padding:2px 10px 8px;}
+  .adv li{position:relative; padding:6px 4px 6px 16px; border-bottom:1px solid #1e1a0c; font-size:12px; color:#cfc9b6; line-height:1.45;}
+  .adv li:before{content:"\2022"; position:absolute; left:2px; color:var(--gold); font-weight:700;}
+  .adv .empty{color:var(--gold-deep); padding-left:2px;}
 
   .field{display:flex; align-items:center; gap:8px; padding:4px 12px 8px; font-size:12.5px; color:#ddd;}
   .field input[type=number]{
@@ -151,6 +156,11 @@
       <input id="inCamera" type="file" accept="image/*" capture="environment">
     </div>
 
+    <div class="row wrap" style="padding-top:4px;">
+      <button class="chip" id="chNoBg" type="button">&#9986; Remove background</button>
+      <span class="subnote" id="nBg" style="align-self:center;">Best on a plain / even backdrop. Tap again to undo.</span>
+    </div>
+
     <div class="sect-label">Preview</div>
     <div class="row wrap" style="padding-top:4px;">
       <button class="chip on" id="mColour" type="button">Colour blocks</button>
@@ -185,6 +195,17 @@
     </div>
 
     <div class="field">
+      <span>Finished size</span>
+      <select id="fSize">
+        <option value="free">Free (use slider)</option>
+        <option value="6x8">6 &times; 8 in</option>
+        <option value="8x10">8 &times; 10 in</option>
+        <option value="A5">A5 sheet</option>
+        <option value="A4">A4 sheet</option>
+        <option value="A3">A3 sheet</option>
+      </select>
+    </div>
+    <div class="field">
       <span>Fabric count</span>
       <input type="number" id="fCount" min="6" max="28" step="1" value="14">
       <span>holes / inch</span>
@@ -200,8 +221,21 @@
     <div class="sect-label">Thread key (<span id="kCount">0</span>)</div>
     <div class="key" id="key"><div class="empty">No chart yet.</div></div>
 
+    <div class="sect-label">Recommended stitches</div>
+    <ul class="adv" id="advice"><li class="empty">No chart yet.</li></ul>
+
     <div class="sect-label">Print &amp; save</div>
-    <div class="row wrap" style="padding-top:4px;">
+    <div class="field">
+      <span>Printable pattern</span>
+      <select id="fPages">
+        <option value="1">1 page</option>
+        <option value="2">2 pages</option>
+        <option value="4">4 pages</option>
+        <option value="0">Full detail</option>
+      </select>
+      <span class="subnote">fewer pages = coarser chart</span>
+    </div>
+    <div class="row wrap" style="padding-top:0;">
       <button class="chip" id="chColourPage" type="button">Add colour-block pages</button>
       <button class="chip on" id="chSymWhite" type="button">Symbols on white</button>
     </div>
@@ -209,8 +243,10 @@
       <button id="btnPrint" class="big" type="button">&#128438; Print / PDF chart</button>
     </div>
     <div class="row">
-      <button id="btnPng" class="sec" type="button">Save chart image (PNG)</button>
+      <button id="btnShare" class="sec" type="button">&#128228; Share / save to Photos</button>
+      <button id="btnPng" class="sec" type="button">Save PNG</button>
     </div>
+    <div class="subnote">Print: choose <b>Save as PDF</b> and set scale to <b>100% / Actual size</b> (not &ldquo;Fit&rdquo;) so multi-page charts line up. On a phone the PDF and PNG land in <b>Downloads</b>; use <b>Share</b> to send a picture straight to your gallery.</div>
     <div style="height:8px;"></div>
   </div>
 
@@ -231,11 +267,15 @@
 
   var LS = 'dsrEmbroidery';
   var opt = { detail: 120, colours: 12, matchDmc: true, auto: true, mode: 'colour',
-              count: 14, unit: 'in', colourPage: false, symWhite: true };
+              count: 14, unit: 'in', colourPage: false, symWhite: true, size: 'free', noBg: false, pages: '1' };
+
+  // preset finished sizes as [longer edge in, shorter edge in]
+  var SIZE_IN = { '6x8': [8, 6], '8x10': [10, 8], 'A5': [8.27, 5.83], 'A4': [11.69, 8.27], 'A3': [16.54, 11.69] };
   try { Object.assign(opt, JSON.parse(localStorage.getItem(LS) || '{}')); } catch (e) {}
   var save = function () { try { localStorage.setItem(LS, JSON.stringify(opt)); } catch (e) {} };
 
-  var srcId = null;        // source ImageData
+  var origId = null;       // pristine decoded photo
+  var srcId = null;        // working ImageData (may have background removed)
   var chart = null;        // last built chart
   var workCanvas = document.createElement('canvas');
   var view = { scale: 1, fit: 1, ox: 0, oy: 0, atFit: true };
@@ -248,6 +288,8 @@
     $('sDetail').value = opt.detail; $('vDetail').textContent = opt.detail + ' sts wide';
     $('sColour').value = opt.colours; $('vColour').textContent = opt.colours + ' colours';
     $('fCount').value = opt.count; $('fUnit').value = opt.unit;
+    $('fSize').value = SIZE_IN[opt.size] ? opt.size : 'free';
+    $('fPages').value = opt.pages;
     $('chDmc').classList.toggle('on', opt.matchDmc);
     $('chAuto').classList.toggle('on', opt.auto);
     $('chColourPage').classList.toggle('on', opt.colourPage);
@@ -256,7 +298,7 @@
       $(id).classList.toggle('on', id.toLowerCase().indexOf(opt.mode) > -1);
     });
     $('btnUpdate').style.display = opt.auto ? 'none' : '';
-    updateDetailNote();
+    applySize();
   }
   function updateDetailNote() {
     if (!srcId) { $('nDetail').innerHTML = '&nbsp;'; return; }
@@ -264,7 +306,24 @@
     var fw = w / opt.count, fh = h / opt.count;
     var u = opt.unit === 'cm' ? [fw * 2.54, fh * 2.54, 'cm'] : [fw, fh, 'in'];
     $('nDetail').textContent = w + ' × ' + h + ' stitches  →  ' +
-      u[0].toFixed(1) + ' × ' + u[1].toFixed(1) + ' ' + u[2] + ' on ' + opt.count + '-count';
+      u[0].toFixed(1) + ' × ' + u[1].toFixed(1) + ' ' + u[2] + ' on ' + opt.count + '-count' +
+      (opt.size !== 'free' && SIZE_IN[opt.size] ? '  (fit to ' + $('fSize').selectedOptions[0].text.replace(/&times;/g, '×') + ')' : '');
+  }
+
+  // Preset size -> stitch count, keeping the photo's aspect ratio inside the sheet.
+  function applySize() {
+    var preset = SIZE_IN[opt.size];
+    var sl = $('sDetail');
+    sl.disabled = !!preset;
+    if (!preset || !srcId) { if (!preset) { /* free */ } updateDetailNote(); return; }
+    var a = srcId.width / srcId.height, Lm = preset[0], Sm = preset[1], wi, hi;
+    if (a >= 1) { wi = Lm; hi = wi / a; if (hi > Sm) { hi = Sm; wi = hi * a; } }
+    else { hi = Lm; wi = hi * a; if (wi > Sm) { wi = Sm; hi = wi / a; } }
+    var sw = Math.max(20, Math.min(320, Math.round(wi * opt.count)));
+    opt.detail = sw;
+    sl.value = Math.max(+sl.min, Math.min(+sl.max, sw));
+    $('vDetail').textContent = sw + ' sts wide';
+    updateDetailNote();
   }
 
   /* ---------- build ---------- */
@@ -287,7 +346,16 @@
     busy(false);
     renderChart(true);
     renderKey();
+    renderAdvice();
     status(chart.w + ' × ' + chart.h + ' stitches, ' + chart.palette.length + ' thread colour(s).');
+  }
+
+  function renderAdvice() {
+    var el = $('advice');
+    if (!chart) { el.innerHTML = '<li class="empty">No chart yet.</li>'; return; }
+    el.innerHTML = E.stitchAdvice(chart, opt.count).map(function (t) {
+      return '<li>' + t.replace(/[&<]/g, function (m) { return m === '&' ? '&amp;' : '&lt;'; }) + '</li>';
+    }).join('');
   }
 
   function cellPxFor(mode) {
@@ -419,7 +487,9 @@
       busy(false); status('Could not load: ' + (e && e.message || e)); return;
     }
     busy(false);
-    updateDetailNote();
+    origId = srcId;
+    opt.noBg = false; $('chNoBg').classList.remove('on');
+    applySize();
     status('Photo loaded (' + srcId.width + '×' + srcId.height + '). Building chart…');
     runBuild();
   }
@@ -447,15 +517,22 @@
 
   /* ---------- sliders / chips ---------- */
   $('sDetail').addEventListener('input', function () {
+    if (SIZE_IN[opt.size]) return;              // locked by a finished-size preset
     opt.detail = +this.value; $('vDetail').textContent = opt.detail + ' sts wide';
     updateDetailNote(); save(); scheduleBuild();
+  });
+  $('fSize').addEventListener('change', function () {
+    opt.size = this.value; save(); applySize();
+    if (srcId) { if (opt.auto) runBuild(); }
   });
   $('sColour').addEventListener('input', function () {
     opt.colours = +this.value; $('vColour').textContent = opt.colours + ' colours';
     save(); scheduleBuild();
   });
   $('fCount').addEventListener('input', function () {
-    opt.count = Math.max(6, Math.min(28, +this.value || 14)); updateDetailNote(); save();
+    opt.count = Math.max(6, Math.min(28, +this.value || 14)); save();
+    applySize();
+    if (srcId && SIZE_IN[opt.size]) scheduleBuild();
   });
   $('fUnit').addEventListener('change', function () { opt.unit = this.value; updateDetailNote(); save(); });
 
@@ -465,8 +542,24 @@
     $('btnUpdate').style.display = opt.auto ? 'none' : ''; save();
     if (opt.auto) scheduleBuild(0);
   });
+  $('chNoBg').addEventListener('click', function () {
+    if (!origId) { status('Choose a photo first.'); return; }
+    opt.noBg = !opt.noBg; this.classList.toggle('on', opt.noBg); save();
+    busy(true, opt.noBg ? 'Removing background…' : 'Restoring background…');
+    setTimeout(function () {
+      try {
+        srcId = opt.noBg ? E.removeBackground(origId) : origId;
+      } catch (e) { srcId = origId; opt.noBg = false; $('chNoBg').classList.remove('on'); }
+      busy(false);
+      $('nBg').textContent = opt.noBg
+        ? 'Background dropped (blank = no stitch). Tap again to undo.'
+        : 'Best on a plain / even backdrop. Tap again to undo.';
+      runBuild();
+    }, 20);
+  });
   $('chColourPage').addEventListener('click', function () { opt.colourPage = !opt.colourPage; this.classList.toggle('on', opt.colourPage); save(); });
   $('chSymWhite').addEventListener('click', function () { opt.symWhite = !opt.symWhite; this.classList.toggle('on', opt.symWhite); save(); });
+  $('fPages').addEventListener('change', function () { opt.pages = this.value; save(); });
   $('btnUpdate').addEventListener('click', runBuild);
 
   function setMode(m) {
@@ -495,7 +588,9 @@
       var html = E.buildPrintDoc(chart, {
         title: 'Embroidery chart – ' + chart.w + '×' + chart.h + ' stitches',
         count: opt.count, unit: opt.unit,
-        includeColour: opt.colourPage, symbolsWhite: opt.symWhite
+        includeColour: opt.colourPage, symbolsWhite: opt.symWhite,
+        maxPages: +opt.pages || 0,
+        finishedTarget: SIZE_IN[opt.size] ? $('fSize').selectedOptions[0].text.replace(/&times;/g, '×') : null
       });
       busy(false);
       if (win && !win.closed) { win.document.open(); win.document.write(html); win.document.close(); status('Print sheet opened in a new tab.'); }
@@ -509,21 +604,45 @@
     }, 30);
   });
 
+  function chartPng(cb) {
+    var px = opt.mode === 'symbol' ? 22 : (opt.mode === 'stitch' ? 16 : 12);
+    var c = E.renderToCanvas(chart, opt.mode, px);
+    c.toBlob(function (b) { cb(b, c); }, 'image/png');
+  }
+  function pngName() { return 'embroidery_' + opt.mode + '_' + chart.w + 'x' + chart.h + '.png'; }
+
   $('btnPng').addEventListener('click', function () {
     if (!chart) { status('Build a chart first.'); return; }
     busy(true, 'Rendering image…');
     setTimeout(function () {
-      var px = opt.mode === 'symbol' ? 22 : (opt.mode === 'stitch' ? 16 : 12);
-      var c = E.renderToCanvas(chart, opt.mode, px);
-      c.toBlob(function (b) {
+      chartPng(function (b, c) {
         busy(false);
         var u = URL.createObjectURL(b);
         var a = document.createElement('a');
-        a.href = u; a.download = 'embroidery_' + opt.mode + '_' + chart.w + 'x' + chart.h + '.png';
+        a.href = u; a.download = pngName();
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(function () { URL.revokeObjectURL(u); }, 20000);
-        status('Saved chart image (' + c.width + '×' + c.height + ').');
-      }, 'image/png');
+        status('Saved to Downloads: ' + pngName() + ' (' + c.width + '×' + c.height + ').');
+      });
+    }, 30);
+  });
+
+  $('btnShare').addEventListener('click', function () {
+    if (!chart) { status('Build a chart first.'); return; }
+    busy(true, 'Rendering image…');
+    setTimeout(function () {
+      chartPng(function (b) {
+        busy(false);
+        var file = new File([b], pngName(), { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          navigator.share({ files: [file], title: 'Embroidery chart' })
+            .then(function () { status('Shared — pick Photos / Gallery to save it there.'); })
+            .catch(function (e) { status(e && e.name === 'AbortError' ? 'Share cancelled.' : 'Share not available — saved to Downloads instead.'); if (!(e && e.name === 'AbortError')) $('btnPng').click(); });
+        } else {
+          status('Sharing not supported on this browser — saving to Downloads.');
+          $('btnPng').click();
+        }
+      });
     }, 30);
   });
 
