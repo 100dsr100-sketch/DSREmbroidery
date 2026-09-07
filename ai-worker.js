@@ -6,21 +6,26 @@
  * DEPLOY
  *   1. dash.cloudflare.com -> Compute -> Workers & Pages -> your Worker.
  *   2. Edit code: paste this whole file over what's there, Deploy.
- *   3. Settings -> Bindings -> Add -> "Workers AI"
- *        Variable name:  AI          (exactly this)      -> Save / Deploy.
+ *   3. Bindings tab -> Add binding -> "Workers AI"
+ *        Variable name:  AI          (exactly this)      -> Add Binding.
  *      (You can delete the old GEMINI_API_KEY / GEMINI_MODEL variables.)
- *   4. Copy the Worker URL and paste it into the app:
- *        Embroidery mode -> "AI URL".
+ *   4. Copy the Worker URL and paste it into the app (Embroidery -> "AI URL").
  *
  * Optional Worker variables (Settings -> Variables, type Text):
- *   AI_MODEL     default @cf/runwayml/stable-diffusion-v1-5-img2img
+ *   AI_MODEL     force one model instead of auto-picking from the list below
  *   AI_STRENGTH  0-1, default 0.62  (lower = closer to the photo, higher = more stylised)
  *   AI_STEPS     default 20
  *   ALLOWED_ORIGINS  e.g. https://100dsr100-sketch.github.io,http://localhost
  * ---------------------------------------------------------------------------
  */
 
-const DEFAULT_MODEL = '@cf/runwayml/stable-diffusion-v1-5-img2img';
+// img2img-capable models, tried in order until the account is allowed one.
+const MODELS = [
+  '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+  '@cf/lykon/dreamshaper-8-lcm',
+  '@cf/runwayml/stable-diffusion-v1-5-img2img',
+  '@cf/bytedance/stable-diffusion-xl-lightning'
+];
 
 const PROMPT =
   'hand embroidered thread portrait, dense long-and-short and satin stitches following the ' +
@@ -57,6 +62,12 @@ function b64FromBuf(buf) {
   for (let i = 0; i < b.length; i += chunk) s += String.fromCharCode.apply(null, b.subarray(i, i + chunk));
   return btoa(s);
 }
+async function toBuf(out) {
+  if (out instanceof ReadableStream) return await new Response(out).arrayBuffer();
+  if (out instanceof ArrayBuffer) return out;
+  if (out && typeof out.image === 'string') return bytesFromB64(out.image.replace(/^data:[^,]+,/, '')).buffer;
+  return null;
+}
 
 export default {
   async fetch(request, env) {
@@ -66,7 +77,7 @@ export default {
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: ch });
     if (request.method !== 'POST') return json({ error: 'POST an image.' }, 405, ch);
-    if (!env.AI) return json({ error: 'Worker has no "AI" binding. Settings -> Bindings -> Add -> Workers AI, name it AI.' }, 500, ch);
+    if (!env.AI) return json({ error: 'Worker has no "AI" binding. Bindings tab -> Add binding -> Workers AI, name it AI.' }, 500, ch);
 
     let body;
     try { body = await request.json(); } catch (e) { return json({ error: 'Bad JSON body.' }, 400, ch); }
@@ -78,37 +89,41 @@ export default {
 
     let src;
     try { src = bytesFromB64(data); } catch (e) { return json({ error: 'Image was not valid base64.' }, 400, ch); }
+    const imgArr = [...src];
 
-    const model = body.model || env.AI_MODEL || DEFAULT_MODEL;
     const strength = Math.max(0.1, Math.min(0.95, parseFloat(body.strength || env.AI_STRENGTH || '0.62')));
     const steps = Math.max(5, Math.min(30, parseInt(body.steps || env.AI_STEPS || '20', 10)));
     const prompt = PROMPT + (body.extra ? ', ' + body.extra : '');
+    const list = (body.model || env.AI_MODEL) ? [body.model || env.AI_MODEL] : MODELS;
 
-    let out;
-    try {
-      out = await env.AI.run(model, {
-        prompt,
-        negative_prompt: NEG,
-        image: [...src],
-        strength,
-        guidance: 7.5,
-        num_steps: steps
-      });
-    } catch (e) {
-      const msg = (e && (e.message || e.toString())) || 'unknown';
-      const daily = /quota|neuron|limit|exceed/i.test(msg);
-      return json({ error: (daily ? 'Cloudflare AI daily free limit reached – try again tomorrow. ' : 'Workers AI error: ') + msg, model }, 502, ch);
-    }
+    const inputs = {
+      prompt,
+      negative_prompt: NEG,
+      image: imgArr,
+      image_b64: data,
+      strength,
+      guidance: 7.5,
+      num_steps: steps
+    };
 
-    let buf;
-    if (out instanceof ReadableStream) buf = await new Response(out).arrayBuffer();
-    else if (out instanceof ArrayBuffer) buf = out;
-    else if (out && out.image) {
-      // some models return { image: "<base64>" }
-      return json({ image: String(out.image).replace(/^data:[^,]+,/, ''), mime: 'image/png', model }, 200, ch);
-    } else {
-      return json({ error: 'Workers AI returned an unexpected result.', model }, 502, ch);
+    let lastErr = '';
+    for (const model of list) {
+      try {
+        const out = await env.AI.run(model, inputs);
+        const buf = await toBuf(out);
+        if (buf && buf.byteLength > 500) {
+          return json({ image: b64FromBuf(buf), mime: 'image/png', model }, 200, ch);
+        }
+        lastErr = model + ': empty result';
+      } catch (e) {
+        const msg = (e && (e.message || e.toString())) || 'unknown';
+        if (/quota|neuron|\b(limit|exceed)/i.test(msg) && !/not allowed|5018/i.test(msg)) {
+          return json({ error: 'Cloudflare AI daily free limit reached – try again tomorrow.', model }, 502, ch);
+        }
+        lastErr = model + ' -> ' + msg;
+        // try the next model
+      }
     }
-    return json({ image: b64FromBuf(buf), mime: 'image/png', model }, 200, ch);
+    return json({ error: 'No usable Workers AI image model for this account. Last: ' + lastErr }, 502, ch);
   }
 };
