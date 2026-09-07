@@ -73,8 +73,9 @@
   /* preview */
   .preview{
     position:relative; margin:6px 10px; border:1px solid var(--line); border-radius:8px;
-    background:var(--preview); height:46vh; min-height:240px; overflow:hidden; touch-action:none;
+    background:var(--preview); height:40vh; min-height:220px; overflow:hidden; touch-action:pan-y;
   }
+  .preview.editing{touch-action:none;}
   .preview canvas{position:absolute; left:0; top:0; image-rendering:pixelated;}
   .preview .hint{
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
@@ -108,6 +109,26 @@
   }
   .subnote{font-size:11px; color:var(--gold-deep); padding:0 12px 2px;}
   input[type=range]:disabled{opacity:.4;}
+
+  /* layout editor */
+  .lbar{padding:4px 10px 2px;}
+  .lbar .mini{border-color:var(--gold-deep); color:var(--gold-deep); font-size:12px; min-height:36px; padding:6px 10px;}
+  .sympal{display:flex; flex-wrap:wrap; gap:6px; padding:4px 10px 6px;}
+  .sympal canvas{
+    width:38px; height:38px; border:1px solid var(--gold-deep); border-radius:8px;
+    background:#111; cursor:pointer; flex:0 0 auto;
+  }
+  .sympal canvas:active{background:#1a1a1a;}
+  .oved{padding:4px 10px 6px; border-top:1px solid var(--line);}
+  .oved .r{display:flex; gap:8px; align-items:center; margin:5px 0; flex-wrap:wrap;}
+  .oved input[type=text]{
+    flex:1 1 140px; min-width:120px; background:#111; color:var(--gold);
+    border:1px solid var(--gold-deep); border-radius:6px; padding:8px 9px; font:inherit;
+  }
+  .oved .sw{width:24px; height:24px; border-radius:5px; border:2px solid #444; cursor:pointer; flex:0 0 auto;}
+  .oved .sw.on{border-color:var(--gold);}
+  .oved input[type=color]{width:40px; height:32px; padding:0; border:1px solid var(--gold-deep); border-radius:6px; background:#111;}
+  .oved input[type=range]{flex:1 1 120px;}
   .adv{list-style:none; margin:0; padding:2px 10px 8px;}
   .adv li{position:relative; padding:6px 4px 6px 16px; border-bottom:1px solid #1e1a0c; font-size:12px; color:#cfc9b6; line-height:1.45;}
   .adv li:before{content:"\2022"; position:absolute; left:2px; color:var(--gold); font-weight:700;}
@@ -152,7 +173,7 @@
       <div class="t1">DSR Systems</div>
       <div class="t2">DSR Embroidery</div>
     </div>
-    <div class="ver">Version 1e</div>
+    <div class="ver">Version 1f</div>
   </div>
 
   <div class="scroll">
@@ -171,6 +192,7 @@
 
     <div class="sect-label">Preview</div>
     <div class="row wrap" style="padding-top:4px;">
+      <button class="chip" id="mLayout" type="button">&#9998; Photo &amp; layout</button>
       <button class="chip on" id="mColour" type="button">Colour blocks</button>
       <button class="chip" id="mStitch" type="button">Cross-stitch</button>
       <button class="chip" id="mSymbol" type="button">By numbers</button>
@@ -182,6 +204,27 @@
         <button id="btnFit"  type="button" title="Fit to view" style="font-size:12px;font-weight:700;">Fit</button>
         <button id="btnZOut" type="button" title="Zoom out">&#8722;</button>
         <button id="btnZIn"  type="button" title="Zoom in">+</button>
+      </div>
+    </div>
+
+    <div id="layoutBar" hidden>
+      <div class="lbar row wrap" style="padding-top:6px;">
+        <button class="mini" id="btnAddCap" type="button">&#43; Caption</button>
+        <button class="mini" id="btnAddSym" type="button">&#43; Symbol</button>
+        <button class="mini" id="btnResetFrame" type="button">Reset frame</button>
+      </div>
+      <div class="subnote">Drag the photo to reposition &middot; pinch to zoom &middot; tap a caption/symbol to edit it.</div>
+      <div class="sympal" id="sympal" hidden></div>
+      <div class="oved" id="oved" hidden>
+        <div class="r" id="ovTextRow"><input type="text" id="ovText" maxlength="40" placeholder="Caption text"></div>
+        <div class="r" id="ovSwatch"></div>
+        <div class="r">
+          <span class="subnote" style="padding:0;">Colour</span>
+          <input type="color" id="ovColor">
+          <span class="subnote" style="padding:0;">Size</span>
+          <input type="range" id="ovSize" min="4" max="70" step="1" value="18">
+          <button class="mini" id="ovDel" type="button" style="flex:0 0 auto;">Delete</button>
+        </div>
       </div>
     </div>
 
@@ -264,8 +307,8 @@
 <div class="busy" id="busy"><div class="ring"></div><div class="msg" id="busyMsg">Working&hellip;</div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
-<script src="dmc.js?v=1e"></script>
-<script src="stitchengine.js?v=1e"></script>
+<script src="dmc.js?v=1f"></script>
+<script src="stitchengine.js?v=1f"></script>
 <script>
 (function () {
   'use strict';
@@ -283,10 +326,168 @@
   var save = function () { try { localStorage.setItem(LS, JSON.stringify(opt)); } catch (e) {} };
 
   var origId = null;       // pristine decoded photo
-  var srcId = null;        // working ImageData (may have background removed)
+  var cutId = null;        // background-removed version (alpha matte), or null
+  var srcId = null;        // composed frame fed to the chart builder
   var chart = null;        // last built chart
   var workCanvas = document.createElement('canvas');
   var view = { scale: 1, fit: 1, ox: 0, oy: 0, atFit: true };
+
+  /* ---------- layout editor state ---------- */
+  var frame = { w: 1100, h: 825 };            // working output canvas (frame aspect)
+  var ptx = { scale: 1, ox: 0, oy: 0 };        // photo -> frame transform
+  var overlays = [];                           // {id,kind:'text'|'sym',text,cx,cy,size,color}
+  var selId = null, uid = 1;
+  var photoCanvas = document.createElement('canvas');   // cached photo (with matte)
+  var lmap = { fit: 1, ox: 0, oy: 0 };          // frame -> screen (layout mode)
+
+  var GLYPHS = ['heart', 'star', 'sparkle', 'flower', 'leaf', 'sun', 'moon', 'snow', 'circle', 'diamond', 'triangle', 'plus'];
+  function drawGlyph(g, name, s) {
+    var k = s * 0.5;
+    g.save();
+    if (name === 'heart') {
+      g.beginPath();
+      g.moveTo(0, k * 0.72);
+      g.bezierCurveTo(k * 1.15, -k * 0.25, k * 0.55, -k * 1.05, 0, -k * 0.35);
+      g.bezierCurveTo(-k * 0.55, -k * 1.05, -k * 1.15, -k * 0.25, 0, k * 0.72);
+      g.closePath(); g.fill();
+    } else if (name === 'star' || name === 'sparkle') {
+      var sp = name === 'star' ? 5 : 4, inr = name === 'star' ? s * 0.2 : s * 0.14;
+      g.beginPath();
+      for (var i = 0; i < sp * 2; i++) {
+        var r = (i % 2) ? inr : k, a = -Math.PI / 2 + i * Math.PI / sp;
+        g.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      }
+      g.closePath(); g.fill();
+    } else if (name === 'flower') {
+      for (var p = 0; p < 5; p++) {
+        g.save(); g.rotate(p * Math.PI * 2 / 5);
+        g.beginPath(); g.ellipse(0, -s * 0.27, s * 0.15, s * 0.27, 0, 0, 7); g.fill();
+        g.restore();
+      }
+      g.beginPath(); g.arc(0, 0, s * 0.13, 0, 7); g.fill();
+    } else if (name === 'leaf') {
+      g.beginPath();
+      g.moveTo(0, -k); g.quadraticCurveTo(k * 0.85, 0, 0, k);
+      g.quadraticCurveTo(-k * 0.85, 0, 0, -k);
+      g.fill();
+    } else if (name === 'sun') {
+      g.beginPath(); g.arc(0, 0, s * 0.24, 0, 7); g.fill();
+      for (var r2 = 0; r2 < 8; r2++) {
+        g.save(); g.rotate(r2 * Math.PI / 4);
+        g.beginPath(); g.moveTo(-s * 0.06, -s * 0.32); g.lineTo(s * 0.06, -s * 0.32); g.lineTo(0, -k); g.closePath(); g.fill();
+        g.restore();
+      }
+    } else if (name === 'moon') {
+      g.beginPath();
+      g.arc(0, 0, k, Math.PI * 0.5, Math.PI * 1.5, false);
+      g.arc(s * 0.2, 0, k * 0.82, Math.PI * 1.5, Math.PI * 0.5, true);
+      g.closePath(); g.fill();
+    } else if (name === 'snow') {
+      g.strokeStyle = g.fillStyle; g.lineWidth = s * 0.08; g.lineCap = 'round';
+      for (var a3 = 0; a3 < 3; a3++) {
+        g.save(); g.rotate(a3 * Math.PI / 3);
+        g.beginPath(); g.moveTo(0, -k); g.lineTo(0, k); g.stroke();
+        [-1, 1].forEach(function (sgn) {
+          g.beginPath(); g.moveTo(0, sgn * k * 0.62); g.lineTo(k * 0.28, sgn * k * 0.9); g.stroke();
+          g.beginPath(); g.moveTo(0, sgn * k * 0.62); g.lineTo(-k * 0.28, sgn * k * 0.9); g.stroke();
+        });
+        g.restore();
+      }
+    } else if (name === 'circle') {
+      g.beginPath(); g.arc(0, 0, k * 0.92, 0, 7); g.fill();
+    } else if (name === 'diamond') {
+      g.beginPath(); g.moveTo(0, -k); g.lineTo(k * 0.82, 0); g.lineTo(0, k); g.lineTo(-k * 0.82, 0); g.closePath(); g.fill();
+    } else if (name === 'triangle') {
+      g.beginPath(); g.moveTo(0, -k); g.lineTo(k * 0.92, k * 0.8); g.lineTo(-k * 0.92, k * 0.8); g.closePath(); g.fill();
+    } else if (name === 'plus') {
+      var t = s * 0.17;
+      g.beginPath(); g.rect(-t, -k, t * 2, s); g.rect(-k, -t, s, t * 2); g.fill();
+    }
+    g.restore();
+  }
+
+  function hex2rgb(h) {
+    h = (h || '#000').replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  function relLum(c) { return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]; }
+
+  // draw one overlay into ctx already scaled to frame pixels
+  function paintOverlay(g, o) {
+    var x = o.cx * frame.w, y = o.cy * frame.h, fs = o.size / 100 * frame.h;
+    g.save();
+    g.translate(x, y);
+    var rgb = hex2rgb(o.color);
+    g.lineJoin = 'round'; g.miterLimit = 2;
+    if (o.kind === 'text') {
+      g.font = '800 ' + fs + 'px "Segoe UI","Arial Black",Arial,sans-serif';
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.lineWidth = Math.max(2, fs * 0.13);
+      g.strokeStyle = relLum(rgb) > 150 ? 'rgba(0,0,0,.55)' : 'rgba(255,255,255,.7)';
+      g.strokeText(o.text || ' ', 0, 0);
+      g.fillStyle = o.color; g.fillText(o.text || ' ', 0, 0);
+    } else {
+      // halo for legibility
+      g.fillStyle = relLum(rgb) > 150 ? 'rgba(0,0,0,.5)' : 'rgba(255,255,255,.65)';
+      drawGlyph(g, o.text, fs * 1.14);
+      g.fillStyle = o.color;
+      drawGlyph(g, o.text, fs);
+    }
+    g.restore();
+  }
+
+  function buildPhotoCanvas() {
+    var id = (opt.noBg && cutId) ? cutId : origId;
+    if (!id) return;
+    photoCanvas.width = id.width; photoCanvas.height = id.height;
+    photoCanvas.getContext('2d').putImageData(id, 0, 0);
+  }
+
+  function recomputeFrame() {
+    if (!origId) return;
+    var pw = origId.width, ph = origId.height, a;
+    var preset = SIZE_IN[opt.size];
+    if (preset) {
+      var Lm = preset[0], Sm = preset[1];
+      a = (pw >= ph) ? Lm / Sm : Sm / Lm;         // orient sheet to the photo
+    } else {
+      a = pw / ph;
+    }
+    var LONG = 1100;
+    if (a >= 1) { frame.w = LONG; frame.h = Math.round(LONG / a); }
+    else { frame.h = LONG; frame.w = Math.round(LONG * a); }
+  }
+  function resetPhotoTransform() {
+    if (!origId) return;
+    var s = Math.max(frame.w / origId.width, frame.h / origId.height);
+    ptx.scale = s;
+    ptx.ox = (frame.w - origId.width * s) / 2;
+    ptx.oy = (frame.h - origId.height * s) / 2;
+  }
+  function clampPhoto() {
+    var dw = origId.width * ptx.scale, dh = origId.height * ptx.scale;
+    var minS = Math.max(frame.w / origId.width, frame.h / origId.height) * 0.4;
+    if (ptx.scale < minS) ptx.scale = minS;
+    dw = origId.width * ptx.scale; dh = origId.height * ptx.scale;
+    ptx.ox = Math.min(frame.w * 0.5, Math.max(frame.w * 0.5 - dw, ptx.ox));
+    ptx.oy = Math.min(frame.h * 0.5, Math.max(frame.h * 0.5 - dh, ptx.oy));
+  }
+
+  // Compose the framed photo + overlays into one ImageData for the chart builder.
+  function composeSource() {
+    var fw = frame.w, fh = frame.h;
+    var c = document.createElement('canvas'); c.width = fw; c.height = fh;
+    var g = c.getContext('2d');
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.save();
+    g.beginPath(); g.rect(0, 0, fw, fh); g.clip();
+    g.setTransform(ptx.scale, 0, 0, ptx.scale, ptx.ox, ptx.oy);
+    g.drawImage(photoCanvas, 0, 0);
+    g.restore();
+    overlays.forEach(function (o) { paintOverlay(g, o); });
+    return g.getImageData(0, 0, fw, fh);
+  }
 
   function busy(on, msg) { $('busyMsg').textContent = msg || 'Working…'; $('busy').classList.toggle('show', !!on); }
   function yield_() { return new Promise(function (r) { setTimeout(r, 20); }); }
@@ -337,15 +538,16 @@
     $('chAuto').classList.toggle('on', opt.auto);
     $('chColourPage').classList.toggle('on', opt.colourPage);
     $('chSymWhite').classList.toggle('on', opt.symWhite);
-    ['mColour', 'mStitch', 'mSymbol'].forEach(function (id) {
-      $(id).classList.toggle('on', id.toLowerCase().indexOf(opt.mode) > -1);
-    });
+    var mb = { layout: 'mLayout', colour: 'mColour', stitch: 'mStitch', symbol: 'mSymbol' };
+    if (!mb[opt.mode]) opt.mode = 'colour';
+    Object.keys(mb).forEach(function (k) { $(mb[k]).classList.toggle('on', k === opt.mode); });
+    $('layoutBar').hidden = opt.mode !== 'layout';
     $('btnUpdate').style.display = opt.auto ? 'none' : '';
     applySize();
   }
   function updateDetailNote() {
-    if (!srcId) { $('nDetail').innerHTML = '&nbsp;'; return; }
-    var w = opt.detail, h = Math.max(1, Math.round(w * srcId.height / srcId.width));
+    if (!origId) { $('nDetail').innerHTML = '&nbsp;'; return; }
+    var w = opt.detail, h = Math.max(1, Math.round(w * frame.h / frame.w));
     var fw = w / opt.count, fh = h / opt.count;
     var u = opt.unit === 'cm' ? [fw * 2.54, fh * 2.54, 'cm'] : [fw, fh, 'in'];
     $('nDetail').textContent = w + ' × ' + h + ' stitches  →  ' +
@@ -353,13 +555,15 @@
       (opt.size !== 'free' && SIZE_IN[opt.size] ? '  (fit to ' + $('fSize').selectedOptions[0].text.replace(/&times;/g, '×') + ')' : '');
   }
 
-  // Preset size -> stitch count, keeping the photo's aspect ratio inside the sheet.
+  // Preset size -> stitch count from the frame's aspect ratio.
   function applySize() {
     var preset = SIZE_IN[opt.size];
     var sl = $('sDetail');
     sl.disabled = !!preset;
-    if (!preset || !srcId) { if (!preset) { /* free */ } updateDetailNote(); return; }
-    var a = srcId.width / srcId.height, Lm = preset[0], Sm = preset[1], wi, hi;
+    if (!origId) { updateDetailNote(); return; }
+    recomputeFrame();
+    if (!preset) { updateDetailNote(); return; }
+    var a = frame.w / frame.h, Lm = preset[0], Sm = preset[1], wi, hi;
     if (a >= 1) { wi = Lm; hi = wi / a; if (hi > Sm) { hi = Sm; wi = hi * a; } }
     else { hi = Lm; wi = hi * a; if (wi > Sm) { wi = Sm; hi = wi / a; } }
     var sw = Math.max(20, Math.min(320, Math.round(wi * opt.count)));
@@ -372,22 +576,23 @@
   /* ---------- build ---------- */
   var buildTimer = null;
   function scheduleBuild(delay) {
-    if (!srcId) return;
-    if (!opt.auto) return;
+    if (!origId || !opt.auto) return;
     clearTimeout(buildTimer);
-    buildTimer = setTimeout(runBuild, delay == null ? 260 : delay);
+    buildTimer = setTimeout(runBuild, delay == null ? 300 : delay);
   }
   async function runBuild() {
-    if (!srcId) { status('Choose a photo first.'); return; }
+    if (!origId) { status('Choose a photo first.'); return; }
     busy(true, 'Building chart…');
     await yield_();
     try {
+      buildPhotoCanvas();
+      srcId = composeSource();
       chart = E.build(srcId, { stitchesWide: opt.detail, colours: opt.colours, matchDmc: opt.matchDmc });
     } catch (e) {
       busy(false); status('Could not build chart: ' + (e && e.message || e)); return;
     }
     busy(false);
-    renderChart(true);
+    if (opt.mode === 'layout') renderLayout(); else renderChart(true);
     renderKey();
     renderAdvice();
     status(chart.w + ' × ' + chart.h + ' stitches, ' + chart.palette.length + ' thread colour(s).');
@@ -411,7 +616,7 @@
   function renderChart(refit) {
     if (!chart) return;
     $('hint').style.display = 'none';
-    $('pvTools').style.display = 'flex';
+    $('pvTools').style.display = opt.mode === 'layout' ? 'none' : 'flex';
     var c = E.renderToCanvas(chart, opt.mode, cellPxFor(opt.mode));
     workCanvas.width = c.width; workCanvas.height = c.height;
     workCanvas.getContext('2d').drawImage(c, 0, 0);
@@ -473,43 +678,147 @@
     var ns = Math.max(view.fit, Math.min(view.fit * 24, view.scale * f));
     view.scale = ns; view.atFit = Math.abs(ns - view.fit) < 1e-4;
     view.ox = cx - ix * ns; view.oy = cy - iy * ns;
-    clampPan(); renderPreview();
+    clampPan(); renderPreview(); updateTouchAction();
   }
+
+  /* ---------- layout editor render ---------- */
+  function updateTouchAction() {
+    var editing = opt.mode === 'layout' || !view.atFit;
+    $('preview').classList.toggle('editing', !!editing);
+  }
+  function screenToFrame(sx, sy) { return { x: (sx - lmap.ox) / lmap.fit, y: (sy - lmap.oy) / lmap.fit }; }
+  function hitOverlay(fx, fy) {
+    for (var i = overlays.length - 1; i >= 0; i--) {
+      var o = overlays[i], x = o.cx * frame.w, y = o.cy * frame.h, fs = o.size / 100 * frame.h;
+      var hw = o.kind === 'text' ? Math.max(fs * 2.6, frame.w * 0.14) : fs * 0.8;
+      if (Math.abs(fx - x) < hw && Math.abs(fy - y) < fs * 0.85) return o;
+    }
+    return null;
+  }
+  function renderLayout() {
+    var s = pvSize(), g = $('pv').getContext('2d');
+    var reset = function () { g.setTransform(s.dpr, 0, 0, s.dpr, 0, 0); };
+    reset();
+    g.fillStyle = '#141414'; g.fillRect(0, 0, s.w, s.h);
+    if (!origId) return;
+    $('hint').style.display = 'none';
+    var fit = Math.min(s.w / frame.w, s.h / frame.h) * 0.96;
+    var ox = (s.w - frame.w * fit) / 2, oy = (s.h - frame.h * fit) / 2;
+    lmap = { fit: fit, ox: ox, oy: oy };
+
+    reset(); g.save();
+    g.beginPath(); g.rect(ox, oy, frame.w * fit, frame.h * fit); g.clip();
+    g.fillStyle = '#fff'; g.fillRect(ox, oy, frame.w * fit, frame.h * fit);
+    g.translate(ox, oy); g.scale(fit, fit);
+    g.translate(ptx.ox, ptx.oy); g.scale(ptx.scale, ptx.scale);
+    g.imageSmoothingEnabled = true;
+    if (photoCanvas.width) g.drawImage(photoCanvas, 0, 0);
+    g.restore();
+
+    reset(); g.save();
+    g.translate(ox, oy); g.scale(fit, fit);
+    overlays.forEach(function (o) { paintOverlay(g, o); });
+    g.restore();
+
+    reset();
+    var sel = overlays.filter(function (x) { return x.id === selId; })[0];
+    if (sel) {
+      var sx = ox + sel.cx * frame.w * fit, sy = oy + sel.cy * frame.h * fit, sf = sel.size / 100 * frame.h * fit;
+      var bw = sel.kind === 'text' ? Math.max(sf * 3, 70) : sf * 0.95;
+      g.strokeStyle = '#FFD700'; g.lineWidth = 2; g.setLineDash([5, 4]);
+      g.strokeRect(sx - bw, sy - sf * 0.8, bw * 2, sf * 1.6);
+      g.setLineDash([]);
+    }
+    reset();
+    g.strokeStyle = 'rgba(255,215,0,.85)'; g.lineWidth = 2;
+    g.strokeRect(ox + 1, oy + 1, frame.w * fit - 2, frame.h * fit - 2);
+  }
+
+  /* ---------- unified pointer gestures ---------- */
   (function gestures() {
-    var p = $('preview'), pts = {}, pinch = null, drag = null, lastTap = 0;
+    var p = $('preview'), pts = {}, pinch = null, drag = null, lastTap = 0, moved = 0;
     var rel = function (e) { var r = p.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    var isChart = function () { return opt.mode !== 'layout'; };
+
     p.addEventListener('pointerdown', function (e) {
-      p.setPointerCapture(e.pointerId); pts[e.pointerId] = rel(e);
+      // chart mode, fitted, single touch -> let the page scroll through
+      if (isChart() && Object.keys(pts).length === 0 && view.atFit && e.pointerType === 'touch') return;
+      p.setPointerCapture(e.pointerId);
+      pts[e.pointerId] = rel(e); moved = 0;
       var ids = Object.keys(pts);
       if (ids.length === 2) {
         var a = pts[ids[0]], b = pts[ids[1]];
-        pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, s: view.scale }; drag = null;
-      } else drag = { x: e.clientX, y: e.clientY, ox: view.ox, oy: view.oy };
+        pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, s: isChart() ? view.scale : ptx.scale };
+        drag = null;
+      } else if (isChart()) {
+        drag = { x: e.clientX, y: e.clientY, ox: view.ox, oy: view.oy };
+      } else {
+        var f = screenToFrame(pts[e.pointerId].x, pts[e.pointerId].y);
+        var hit = hitOverlay(f.x, f.y);
+        drag = { kind: hit ? 'ov' : 'photo', o: hit, fx: f.x, fy: f.y,
+                 ocx: hit ? hit.cx : 0, ocy: hit ? hit.cy : 0, ox: ptx.ox, oy: ptx.oy };
+      }
     });
+
     p.addEventListener('pointermove', function (e) {
       if (!pts[e.pointerId]) return;
-      pts[e.pointerId] = rel(e);
+      var q = rel(e);
+      moved += Math.hypot(q.x - pts[e.pointerId].x, q.y - pts[e.pointerId].y);
+      pts[e.pointerId] = q;
       var ids = Object.keys(pts);
       if (pinch && ids.length >= 2) {
         var a = pts[ids[0]], b = pts[ids[1]];
         var f = Math.hypot(a.x - b.x, a.y - b.y) / (pinch.d || 1);
-        var ns = Math.max(view.fit, Math.min(view.fit * 24, pinch.s * f));
-        var ix = (pinch.cx - view.ox) / view.scale, iy = (pinch.cy - view.oy) / view.scale;
-        view.scale = ns; view.atFit = false;
-        view.ox = pinch.cx - ix * ns; view.oy = pinch.cy - iy * ns;
-        clampPan(); renderPreview();
-      } else if (drag) {
-        view.ox = drag.ox + (e.clientX - drag.x); view.oy = drag.oy + (e.clientY - drag.y);
-        view.atFit = false; clampPan(); renderPreview();
+        if (isChart()) {
+          var ns = Math.max(view.fit, Math.min(view.fit * 24, pinch.s * f));
+          var ix = (pinch.cx - view.ox) / view.scale, iy = (pinch.cy - view.oy) / view.scale;
+          view.scale = ns; view.atFit = false;
+          view.ox = pinch.cx - ix * ns; view.oy = pinch.cy - iy * ns;
+          clampPan(); renderPreview();
+        } else {
+          ptx.scale = Math.max(0.05, pinch.s * f);
+          clampPhoto(); renderLayout();
+        }
+      } else if (drag && ids.length === 1) {
+        if (isChart()) {
+          view.ox = drag.ox + (e.clientX - drag.x); view.oy = drag.oy + (e.clientY - drag.y);
+          view.atFit = false; clampPan(); renderPreview();
+        } else {
+          var g = screenToFrame(q.x, q.y);
+          if (drag.kind === 'ov' && drag.o) {
+            drag.o.cx = Math.max(0, Math.min(1, drag.ocx + (g.x - drag.fx) / frame.w));
+            drag.o.cy = Math.max(0, Math.min(1, drag.ocy + (g.y - drag.fy) / frame.h));
+          } else {
+            ptx.ox = drag.ox + (g.x - drag.fx); ptx.oy = drag.oy + (g.y - drag.fy);
+            clampPhoto();
+          }
+          renderLayout();
+        }
       }
     });
+
     var up = function (e) {
+      var wasTap = moved < 7;
       delete pts[e.pointerId];
       if (Object.keys(pts).length < 2) pinch = null;
-      if (!Object.keys(pts).length) drag = null;
+      if (!Object.keys(pts).length) {
+        if (!isChart()) {
+          if (wasTap) {
+            var r = p.getBoundingClientRect();
+            var f = screenToFrame(e.clientX - r.left, e.clientY - r.top);
+            var hit = hitOverlay(f.x, f.y);
+            selectOverlay(hit ? hit.id : null);
+          } else if (drag) {
+            scheduleBuild();
+          }
+        }
+        drag = null;
+      }
     };
     p.addEventListener('pointerup', up); p.addEventListener('pointercancel', up);
+
     p.addEventListener('click', function (e) {
+      if (opt.mode === 'layout') return;
       var now = Date.now();
       if (now - lastTap < 300) {
         var r = p.getBoundingClientRect();
@@ -524,16 +833,21 @@
     if (!file) return;
     busy(true, 'Loading photo…');
     await yield_();
+    var id;
     try {
-      srcId = await E.decodeToImageData(file);
+      id = await E.decodeToImageData(file);
     } catch (e) {
       busy(false); status('Could not load: ' + (e && e.message || e)); return;
     }
     busy(false);
-    origId = srcId;
+    origId = id; cutId = null;
     opt.noBg = false; $('chNoBg').classList.remove('on');
+    overlays = []; selId = null; $('oved').hidden = true; $('sympal').hidden = true;
+    $('hint').style.display = 'none';
+    recomputeFrame(); resetPhotoTransform(); buildPhotoCanvas();
     applySize();
-    status('Photo loaded (' + srcId.width + '×' + srcId.height + '). Building chart…');
+    status('Photo loaded (' + id.width + '×' + id.height + '). Building chart…');
+    if (opt.mode === 'layout') renderLayout();
     runBuild();
   }
 
@@ -565,8 +879,9 @@
     updateDetailNote(); save(); scheduleBuild();
   });
   $('fSize').addEventListener('change', function () {
-    opt.size = this.value; save(); applySize();
-    if (srcId) { if (opt.auto) runBuild(); }
+    opt.size = this.value; save();
+    applySize();
+    if (origId) { resetPhotoTransform(); if (opt.mode === 'layout') renderLayout(); if (opt.auto) runBuild(); }
   });
   $('sColour').addEventListener('input', function () {
     opt.colours = +this.value; $('vColour').textContent = opt.colours + ' colours';
@@ -575,7 +890,7 @@
   $('fCount').addEventListener('input', function () {
     opt.count = Math.max(6, Math.min(28, +this.value || 14)); save();
     applySize();
-    if (srcId && SIZE_IN[opt.size]) scheduleBuild();
+    if (origId && SIZE_IN[opt.size]) scheduleBuild();
   });
   $('fUnit').addEventListener('change', function () { opt.unit = this.value; updateDetailNote(); save(); });
 
@@ -590,30 +905,27 @@
     var on = !opt.noBg;
     opt.noBg = on; this.classList.toggle('on', on); save();
     if (!on) {                                   // undo
-      srcId = origId;
       $('nBg').textContent = 'Cuts out the main subject. Tap again to undo.';
       busy(true, 'Restoring background…');
-      setTimeout(function () { busy(false); runBuild(); }, 20);
+      setTimeout(function () { busy(false); if (opt.mode === 'layout') { buildPhotoCanvas(); renderLayout(); } runBuild(); }, 20);
       return;
     }
     (async function () {
       busy(true, 'Removing background…');
       var usedAi = false;
       try {
-        if (navigator.onLine) {
-          srcId = await aiCutout(origId, function (m) { busy(true, m); });
-          usedAi = true;
-        } else {
-          srcId = E.removeBackground(origId);
-        }
+        if (cutId) { usedAi = true; }
+        else if (navigator.onLine) { cutId = await aiCutout(origId, function (m) { busy(true, m); }); usedAi = true; }
+        else { cutId = E.removeBackground(origId); }
       } catch (e) {
-        try { srcId = E.removeBackground(origId); }
-        catch (e2) { srcId = origId; opt.noBg = false; $('chNoBg').classList.remove('on'); }
+        try { cutId = E.removeBackground(origId); }
+        catch (e2) { cutId = null; opt.noBg = false; $('chNoBg').classList.remove('on'); }
       }
       busy(false);
       $('nBg').textContent = usedAi
         ? 'Subject cut out with AI – blank squares = no stitch. Tap again to undo.'
         : 'Plain backdrop removed (AI needs internet the first time). Tap again to undo.';
+      if (opt.mode === 'layout') { buildPhotoCanvas(); renderLayout(); }
       runBuild();
     })();
   });
@@ -622,20 +934,100 @@
   $('fPages').addEventListener('change', function () { opt.pages = this.value; save(); });
   $('btnUpdate').addEventListener('click', runBuild);
 
+  var MODEBTN = { layout: 'mLayout', colour: 'mColour', stitch: 'mStitch', symbol: 'mSymbol' };
   function setMode(m) {
     opt.mode = m; save();
-    ['mColour', 'mStitch', 'mSymbol'].forEach(function (id) { $(id).classList.toggle('on', id.toLowerCase().indexOf(m) > -1); });
-    if (chart) renderChart(true);
+    Object.keys(MODEBTN).forEach(function (k) { $(MODEBTN[k]).classList.toggle('on', k === m); });
+    $('layoutBar').hidden = m !== 'layout';
+    updateTouchAction();
+    if (m === 'layout') { $('pvTools').style.display = 'none'; buildPhotoCanvas(); renderLayout(); }
+    else if (chart) renderChart(true);
+    else { $('pvTools').style.display = 'none'; }
   }
+  $('mLayout').addEventListener('click', function () { setMode('layout'); });
   $('mColour').addEventListener('click', function () { setMode('colour'); });
   $('mStitch').addEventListener('click', function () { setMode('stitch'); });
   $('mSymbol').addEventListener('click', function () { setMode('symbol'); });
 
-  $('btnFit').addEventListener('click', fitPreview);
+  $('btnFit').addEventListener('click', function () { fitPreview(); updateTouchAction(); });
   $('btnZIn').addEventListener('click', function () { var s = pvSize(); zoomAt(s.w / 2, s.h / 2, 1.3); });
   $('btnZOut').addEventListener('click', function () { var s = pvSize(); zoomAt(s.w / 2, s.h / 2, 1 / 1.3); });
 
-  window.addEventListener('resize', function () { if (view.atFit) fitPreview(); else { clampPan(); renderPreview(); } });
+  window.addEventListener('resize', function () {
+    if (opt.mode === 'layout') renderLayout();
+    else if (view.atFit) fitPreview(); else { clampPan(); renderPreview(); }
+  });
+
+  /* ---------- caption & symbol overlays ---------- */
+  var SWATCH = ['#FFFFFF', '#111111', '#C81E2E', '#E8892B', '#F2C230', '#3EA76B', '#2E6FB7', '#6E48A6', '#8C5A3B', '#E56FA6'];
+  function selectOverlay(id) {
+    selId = id;
+    var o = overlays.filter(function (x) { return x.id === id; })[0];
+    $('oved').hidden = !o;
+    if (o) {
+      $('ovTextRow').hidden = o.kind !== 'text';
+      if (o.kind === 'text') $('ovText').value = o.text;
+      $('ovColor').value = /^#[0-9a-f]{6}$/i.test(o.color) ? o.color : '#000000';
+      $('ovSize').value = o.size;
+      markSwatch(o.color);
+    }
+    renderLayout();
+  }
+  function markSwatch(col) {
+    [].forEach.call($('ovSwatch').children, function (el) {
+      el.classList.toggle('on', (el.dataset.c || '').toLowerCase() === (col || '').toLowerCase());
+    });
+  }
+  function selOv() { return overlays.filter(function (x) { return x.id === selId; })[0]; }
+  function ovChanged() { renderLayout(); scheduleBuild(); }
+
+  (function initSwatches() {
+    SWATCH.forEach(function (c) {
+      var d = document.createElement('div');
+      d.className = 'sw'; d.style.background = c; d.dataset.c = c;
+      d.addEventListener('click', function () {
+        var o = selOv(); if (!o) return;
+        o.color = c; $('ovColor').value = c; markSwatch(c); ovChanged();
+      });
+      $('ovSwatch').appendChild(d);
+    });
+  })();
+  (function initSymPal() {
+    GLYPHS.forEach(function (name) {
+      var cv = document.createElement('canvas'); cv.width = 76; cv.height = 76;
+      var g = cv.getContext('2d'); g.translate(38, 38); g.fillStyle = '#FFD700';
+      drawGlyph(g, name, 52);
+      cv.addEventListener('click', function () {
+        overlays.push({ id: uid++, kind: 'sym', text: name, cx: 0.5, cy: 0.5, size: 16, color: '#C81E2E' });
+        $('sympal').hidden = true;
+        selectOverlay(overlays[overlays.length - 1].id);
+        scheduleBuild();
+      });
+      $('sympal').appendChild(cv);
+    });
+  })();
+
+  $('btnAddCap').addEventListener('click', function () {
+    if (!origId) { status('Choose a photo first.'); return; }
+    overlays.push({ id: uid++, kind: 'text', text: 'Caption', cx: 0.5, cy: 0.5, size: 14, color: '#C81E2E' });
+    selectOverlay(overlays[overlays.length - 1].id);
+    $('ovText').focus(); $('ovText').select();
+    scheduleBuild();
+  });
+  $('btnAddSym').addEventListener('click', function () {
+    if (!origId) { status('Choose a photo first.'); return; }
+    $('sympal').hidden = !$('sympal').hidden;
+  });
+  $('btnResetFrame').addEventListener('click', function () {
+    resetPhotoTransform(); renderLayout(); scheduleBuild();
+  });
+  $('ovText').addEventListener('input', function () { var o = selOv(); if (o) { o.text = this.value; ovChanged(); } });
+  $('ovColor').addEventListener('input', function () { var o = selOv(); if (o) { o.color = this.value; markSwatch(this.value); ovChanged(); } });
+  $('ovSize').addEventListener('input', function () { var o = selOv(); if (o) { o.size = +this.value; ovChanged(); } });
+  $('ovDel').addEventListener('click', function () {
+    overlays = overlays.filter(function (x) { return x.id !== selId; });
+    selId = null; $('oved').hidden = true; renderLayout(); scheduleBuild();
+  });
 
   /* ---------- output ---------- */
   function openBlank() { try { return window.open('', '_blank'); } catch (e) { return null; } }
