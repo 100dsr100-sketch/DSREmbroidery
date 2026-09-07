@@ -109,36 +109,32 @@ export default {
     const prompt = PROMPT + (body.extra ? ', ' + body.extra : '');
     const errs = [];
 
+    const okImage = (b64, mime, model) => json({ image: b64, mime, model, tried: errs }, 200, ch);
+
     // ---- 1. Hugging Face image-to-image ----
     if (env.HF_TOKEN) {
       const list = env.HF_MODEL ? [env.HF_MODEL] : HF_MODELS;
       const hfPrompt = HF_PROMPT + (body.extra ? ' ' + body.extra : '');
       for (const model of list) {
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            const hr = await fetch('https://router.huggingface.co/hf-inference/models/' + model, {
-              method: 'POST',
-              headers: { Authorization: 'Bearer ' + env.HF_TOKEN, 'Content-Type': 'application/json', Accept: 'image/png' },
-              body: JSON.stringify({
-                inputs: data,
-                parameters: { prompt: hfPrompt, negative_prompt: NEG, guidance_scale: 7.5, num_inference_steps: steps }
-              })
-            });
-            const ct = hr.headers.get('content-type') || '';
-            if (hr.ok && ct.startsWith('image')) {
-              const buf = await hr.arrayBuffer();
-              if (buf.byteLength > 500) return json({ image: b64FromBuf(buf), mime: ct, model: 'hf/' + model }, 200, ch);
-              errs.push('hf/' + model + ': tiny');
-              break;
-            }
-            const t = (await hr.text()).slice(0, 200);
-            errs.push('hf/' + model + ': HTTP ' + hr.status + ' ' + t);
-            if (hr.status === 503 && /loading/i.test(t) && attempt === 0) { await sleep(15000); continue; }
-            break;
-          } catch (e) {
-            errs.push('hf/' + model + ': ' + ((e && e.message) || e));
-            break;
+        try {
+          const hr = await fetch('https://router.huggingface.co/hf-inference/models/' + model, {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + env.HF_TOKEN, 'Content-Type': 'application/json', Accept: 'image/png' },
+            body: JSON.stringify({
+              inputs: data,
+              parameters: { prompt: hfPrompt, negative_prompt: NEG, guidance_scale: 7.5, num_inference_steps: steps }
+            })
+          });
+          const ct = hr.headers.get('content-type') || '';
+          if (hr.ok && ct.startsWith('image')) {
+            const buf = await hr.arrayBuffer();
+            if (buf.byteLength > 500) return okImage(b64FromBuf(buf), ct, 'hf/' + model);
+            errs.push('hf/' + model + ': tiny');
+          } else {
+            errs.push('hf/' + model + ': HTTP ' + hr.status + ' ct=' + ct + ' ' + (await hr.text()).slice(0, 220));
           }
+        } catch (e) {
+          errs.push('hf/' + model + ': ' + ((e && e.message) || e));
         }
       }
     }
@@ -151,7 +147,7 @@ export default {
         if (how === 'b64') inp.image_b64 = data; else inp.image = [...src];
         try {
           const buf = await toBuf(await env.AI.run(model, inp));
-          if (buf && buf.byteLength > 500) return json({ image: b64FromBuf(buf), mime: 'image/png', model }, 200, ch);
+          if (buf && buf.byteLength > 500) return okImage(b64FromBuf(buf), 'image/png', model);
           errs.push(model + ': empty');
         } catch (e) {
           const msg = (e && (e.message || e.toString())) || 'unknown';
@@ -177,23 +173,23 @@ export default {
       const p = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) +
         '?width=768&height=768&nologo=true&nofeed=true&safe=false&model=flux&seed=' + seed +
         '&strength=' + strength + '&image=' + encodeURIComponent(stashUrl) + '&_=' + seed;
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const pr = await fetch(p, { headers: { Accept: 'image/*' } });
           const ctype = pr.headers.get('content-type') || '';
           if (pr.ok && ctype.startsWith('image')) {
             const buf = await pr.arrayBuffer();
-            if (buf.byteLength > 500) return json({ image: b64FromBuf(buf), mime: ctype, model: 'pollinations/flux' }, 200, ch);
+            if (buf.byteLength > 500) return okImage(b64FromBuf(buf), ctype, 'pollinations/flux');
             errs.push('pollinations: tiny response');
             break;
           }
           const txt = (await pr.text()).slice(0, 160);
           errs.push('pollinations: HTTP ' + pr.status + ' ' + txt);
-          if ((pr.status === 429 || pr.status >= 500) && attempt < 2) { await sleep(12000); continue; }
+          if ((pr.status === 429 || pr.status >= 500) && attempt < 1) { await sleep(10000); continue; }
           break;
         } catch (e) {
           errs.push('pollinations: ' + ((e && e.message) || e));
-          if (attempt < 2) { await sleep(8000); continue; }
+          if (attempt < 1) { await sleep(6000); continue; }
           break;
         }
       }
