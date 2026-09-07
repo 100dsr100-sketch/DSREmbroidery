@@ -2,10 +2,11 @@
  * ---------------------------------------------------------------------------
  * Turns the app's framed photo into an "embroidery" render.
  * Tries, in order (first one that's configured + works wins):
- *   1. Leonardo.ai image-to-image   (needs LEONARDO_API_KEY – $5 free credit)
- *   2. Hugging Face image-to-image  (needs HF_TOKEN – tiny free credit)
- *   3. Cloudflare Workers AI img2img(needs an "AI" binding)
- *   4. Pollinations                 (keyless, text-driven)
+ *   1. Google Gemini "Nano Banana"   (needs GEMINI_API_KEY + billing enabled)
+ *   2. Leonardo.ai image-to-image   (needs LEONARDO_API_KEY)
+ *   3. Hugging Face image-to-image  (needs HF_TOKEN)
+ *   4. Cloudflare Workers AI img2img(needs an "AI" binding)
+ *   5. Pollinations                 (keyless, text-driven)
  *
  * DEPLOY
  *   1. Edit code: paste this whole file over what's there, Deploy.
@@ -88,6 +89,20 @@ async function toBuf(out) {
   return null;
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// find the first base64 image blob anywhere in a JSON response
+function deepFindB64(node, d) {
+  d = d || 0;
+  if (!node || d > 9) return null;
+  if (typeof node === 'string') return (node.length > 3000 && /^[A-Za-z0-9+/=\s]+$/.test(node.slice(0, 120))) ? node.replace(/\s+/g, '') : null;
+  if (Array.isArray(node)) { for (const v of node) { const r = deepFindB64(v, d + 1); if (r) return r; } return null; }
+  if (typeof node === 'object') {
+    const direct = (node.inlineData && node.inlineData.data) || (node.inline_data && node.inline_data.data) || node.b64_json;
+    if (typeof direct === 'string' && direct.length > 3000) return direct.replace(/\s+/g, '');
+    for (const k in node) { const r = deepFindB64(node[k], d + 1); if (r) return r; }
+  }
+  return null;
+}
 
 // Leonardo.ai image-to-image: upload init image -> start generation -> poll -> fetch result
 async function tryLeonardo(env, jpgBytes, prompt, errs) {
@@ -174,7 +189,29 @@ export default {
     const okImage = (b64, mime, model) => json({ image: b64, mime, model, tried: errs }, 200, ch);
     const editPrompt = HF_PROMPT + (body.extra ? ' ' + body.extra : '');
 
-    // ---- 1. Leonardo.ai image-to-image ----
+    // ---- 1. Google Gemini image ("Nano Banana") – needs billing enabled ----
+    if (env.GEMINI_API_KEY) {
+      const model = env.GEMINI_MODEL || 'gemini-2.5-flash-image';
+      try {
+        const gr = await fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) +
+          ':generateContent?key=' + encodeURIComponent(env.GEMINI_API_KEY),
+          {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: editPrompt }, { inline_data: { mime_type: 'image/jpeg', data } }] }],
+              generationConfig: { responseModalities: ['IMAGE'] }
+            })
+          }
+        );
+        const gj = await gr.json().catch(() => ({}));
+        const img = deepFindB64(gj);
+        if (gr.ok && img) return okImage(img, 'image/png', 'gemini/' + model);
+        errs.push('gemini(' + model + '): HTTP ' + gr.status + ' ' + JSON.stringify(gj.error || gj).slice(0, 240));
+      } catch (e) { errs.push('gemini: ' + ((e && e.message) || e)); }
+    }
+
+    // ---- 2. Leonardo.ai image-to-image ----
     if (env.LEONARDO_API_KEY) {
       try {
         const lo = await tryLeonardo(env, src, editPrompt, errs);
@@ -182,7 +219,7 @@ export default {
       } catch (e) { errs.push('leo: ' + ((e && e.message) || e)); }
     }
 
-    // ---- 2. Hugging Face image-to-image ----
+    // ---- 3. Hugging Face image-to-image ----
     if (env.HF_TOKEN) {
       const list = env.HF_MODEL ? [env.HF_MODEL] : HF_MODELS;
       const hfPrompt = HF_PROMPT + (body.extra ? ' ' + body.extra : '');
@@ -210,7 +247,7 @@ export default {
       }
     }
 
-    // ---- 3. Cloudflare Workers AI ----
+    // ---- 4. Cloudflare Workers AI ----
     if (env.AI) {
       const list = (body.model || env.AI_MODEL) ? [[body.model || env.AI_MODEL, 'b64']] : CF_MODELS;
       for (const [model, how] of list) {
@@ -232,7 +269,7 @@ export default {
       errs.push('no AI binding');
     }
 
-    // ---- 4. Pollinations (keyless), one retry on 429/5xx ----
+    // ---- 5. Pollinations (keyless), one retry on 429/5xx ----
     if (env.NO_POLLINATIONS !== '1') {
       const id = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + '' + Math.random());
       const stashUrl = url.origin + '/_img/' + id + '.jpg';
