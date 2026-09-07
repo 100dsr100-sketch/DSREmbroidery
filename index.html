@@ -23,7 +23,7 @@
 <style>
   @font-face{
     font-family:"Dancing Script";
-    src:url("dancingscript.woff2?v=1h") format("woff2");
+    src:url("dancingscript.woff2?v=1i") format("woff2");
     font-weight:400 700; font-display:swap;
   }
   :root{
@@ -43,44 +43,45 @@
     display:flex; flex-direction:column; overflow:hidden;
     border:2px solid var(--gold-deep);
   }
-  .banner{display:flex; align-items:center; gap:10px; padding:8px 12px; background:#000; border-bottom:1px solid var(--line);}
-  .banner img{width:38px; height:38px;}
+  .banner{display:flex; align-items:center; gap:9px; padding:5px 12px; background:#000; border-bottom:1px solid var(--line);}
+  .banner img{width:32px; height:32px;}
   .banner .t1{color:var(--gold); font-weight:700; font-size:16px; line-height:1.1;}
   .banner .t2{color:var(--gold-deep); font-size:11px;}
   .banner .ver{margin-left:auto; color:var(--gold); font-size:10px; font-weight:700;}
 
   .scroll{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;}
-  .row{display:flex; gap:8px; padding:8px 10px;}
+  .row{display:flex; gap:6px; padding:4px 10px;}
   .row.wrap{flex-wrap:wrap;}
 
   button, .btn{
     appearance:none; border:1px solid var(--gold); background:var(--panel);
-    color:var(--gold); border-radius:8px; padding:11px 12px; font-size:13px;
+    color:var(--gold); border-radius:8px; padding:7px 10px; font-size:12.5px;
     font-family:inherit; font-weight:600; cursor:pointer; flex:1 1 auto;
-    display:flex; align-items:center; justify-content:center; gap:6px; min-height:44px;
+    display:flex; align-items:center; justify-content:center; gap:5px; min-height:32px;
   }
   button:active, .btn:active{background:var(--panel2);}
   button:disabled{opacity:.4;}
-  .btn.big{font-size:15px; padding:14px 12px;}
-  .btn.sec{border-color:var(--gold-deep); color:var(--gold-deep); font-size:12px; min-height:38px; padding:8px 10px;}
+  .btn.big{font-size:13px; padding:9px 10px; min-height:36px;}
+  .btn.sec{border-color:var(--gold-deep); color:var(--gold-deep); font-size:12px; min-height:30px; padding:6px 9px;}
 
   .chip{
     flex:0 0 auto; border:1px solid var(--gold); background:var(--panel);
-    color:var(--gold); border-radius:999px; padding:8px 14px; font-size:12.5px; font-weight:600;
+    color:var(--gold); border-radius:999px; padding:5px 11px; font-size:12px; font-weight:600; min-height:0;
   }
   .chip.on{background:var(--gold); color:#000;}
 
   input[type=file]{display:none;}
 
-  .sect-label{color:var(--gold-deep); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; padding:10px 12px 0;}
-  .status{padding:8px 12px; color:var(--gold-deep); font-size:12px; border-top:1px solid var(--line); background:#000; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .sect-label{color:var(--gold-deep); font-size:10px; text-transform:uppercase; letter-spacing:.06em; padding:6px 12px 0;}
+  .status{padding:5px 12px; color:var(--gold-deep); font-size:12px; border-top:1px solid var(--line); background:#000; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 
   /* preview */
   .preview{
-    position:relative; margin:6px 10px; border:1px solid var(--line); border-radius:8px;
-    background:var(--preview); height:40vh; min-height:220px; overflow:hidden; touch-action:pan-y;
+    position:relative; margin:5px 10px; border:1px solid var(--line); border-radius:8px;
+    background:var(--preview); height:38vh; min-height:200px; overflow:hidden; touch-action:pan-y;
   }
   .preview.editing{touch-action:none;}
+  .preview.sticky{position:sticky; top:4px; z-index:6; box-shadow:0 8px 16px rgba(0,0,0,.6);}
   .preview canvas{position:absolute; left:0; top:0; image-rendering:pixelated;}
   .preview .hint{
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
@@ -88,73 +89,74 @@
   }
   .preview.drag{border-color:var(--gold); background:#241f08;}
   .pv-tools{
-    position:absolute; left:50%; bottom:8px; transform:translateX(-50%);
+    position:absolute; left:50%; bottom:7px; transform:translateX(-50%);
     display:flex; gap:4px; background:#2e2e2e; border-radius:8px; padding:3px;
   }
   .pv-tools button{
-    flex:0 0 auto; min-width:38px; min-height:34px; padding:4px 6px; font-size:15px;
+    flex:0 0 auto; min-width:36px; min-height:32px; padding:3px 6px; font-size:15px;
     border-color:#555; background:#111;
   }
 
   /* sliders */
-  .slider{padding:4px 12px 10px;}
-  .slider .lab{display:flex; justify-content:space-between; font-size:12px; color:#ddd; margin-bottom:4px;}
+  .slider{padding:1px 12px 3px;}
+  .slider .lab{display:flex; justify-content:space-between; font-size:11px; color:#ddd; margin-bottom:1px;}
   .slider .lab b{color:var(--gold);}
   input[type=range]{
-    -webkit-appearance:none; appearance:none; width:100%; height:28px; background:transparent;
+    -webkit-appearance:none; appearance:none; width:100%; height:20px; background:transparent;
   }
-  input[type=range]::-webkit-slider-runnable-track{height:6px; border-radius:3px; background:#333; border:1px solid var(--line);}
-  input[type=range]::-moz-range-track{height:6px; border-radius:3px; background:#333; border:1px solid var(--line);}
+  input[type=range]::-webkit-slider-runnable-track{height:5px; border-radius:3px; background:#333; border:1px solid var(--line);}
+  input[type=range]::-moz-range-track{height:5px; border-radius:3px; background:#333; border:1px solid var(--line);}
   input[type=range]::-webkit-slider-thumb{
-    -webkit-appearance:none; appearance:none; width:22px; height:22px; margin-top:-9px;
+    -webkit-appearance:none; appearance:none; width:17px; height:17px; margin-top:-7px;
     border-radius:50%; background:var(--gold); border:2px solid #7a6410;
   }
   input[type=range]::-moz-range-thumb{
-    width:22px; height:22px; border-radius:50%; background:var(--gold); border:2px solid #7a6410;
+    width:17px; height:17px; border-radius:50%; background:var(--gold); border:2px solid #7a6410;
   }
-  .subnote{font-size:11px; color:var(--gold-deep); padding:0 12px 2px;}
+  .subnote{font-size:11px; color:var(--gold-deep); padding:0 12px 1px;}
+  .subnote:empty{display:none;}
   input[type=range]:disabled{opacity:.4;}
 
   /* layout editor */
-  .lbar{padding:4px 10px 2px;}
-  .lbar .mini{border-color:var(--gold-deep); color:var(--gold-deep); font-size:12px; min-height:36px; padding:6px 10px;}
-  .sympal{display:flex; flex-wrap:wrap; gap:6px; padding:4px 10px 6px;}
+  .lbar{padding:2px 10px 2px;}
+  .lbar .mini{border-color:var(--gold-deep); color:var(--gold-deep); font-size:11.5px; min-height:28px; padding:4px 8px;}
+  .sympal{display:flex; flex-wrap:wrap; gap:5px; padding:2px 10px 4px;}
   .sympal canvas{
-    width:38px; height:38px; border:1px solid var(--gold-deep); border-radius:8px;
+    width:19px; height:19px; border:1px solid var(--gold-deep); border-radius:6px;
     background:#111; cursor:pointer; flex:0 0 auto;
   }
   .sympal canvas:active{background:#1a1a1a;}
-  .oved{padding:4px 10px 6px; border-top:1px solid var(--line);}
-  .oved .r{display:flex; gap:8px; align-items:center; margin:5px 0; flex-wrap:wrap;}
+  .oved{padding:2px 10px 4px; border-top:1px solid var(--line);}
+  .oved .r{display:flex; gap:7px; align-items:center; margin:3px 0; flex-wrap:wrap;}
   .oved input[type=text]{
-    flex:1 1 140px; min-width:120px; background:#111; color:var(--gold);
-    border:1px solid var(--gold-deep); border-radius:6px; padding:8px 9px; font:inherit;
+    flex:1 1 140px; min-width:110px; background:#111; color:var(--gold);
+    border:1px solid var(--gold-deep); border-radius:6px; padding:6px 8px; font:inherit;
   }
-  .oved .sw{width:24px; height:24px; border-radius:5px; border:2px solid #444; cursor:pointer; flex:0 0 auto;}
+  .oved .sw{width:22px; height:22px; border-radius:5px; border:2px solid #444; cursor:pointer; flex:0 0 auto;}
   .oved .sw.on{border-color:var(--gold);}
-  .oved input[type=color]{width:40px; height:32px; padding:0; border:1px solid var(--gold-deep); border-radius:6px; background:#111;}
-  .oved input[type=range]{flex:1 1 120px;}
-  .oved select{background:#111; color:var(--gold); border:1px solid var(--gold-deep); border-radius:6px; padding:8px 8px; font:inherit; flex:0 0 auto;}
+  .oved input[type=color]{width:38px; height:28px; padding:0; border:1px solid var(--gold-deep); border-radius:6px; background:#111;}
+  .oved input[type=range]{flex:1 1 110px;}
+  .oved select{background:#111; color:var(--gold); border:1px solid var(--gold-deep); border-radius:6px; padding:6px 7px; font:inherit; flex:0 0 auto;}
   #preview:focus{outline:2px solid var(--gold-deep); outline-offset:-2px;}
-  .adv{list-style:none; margin:0; padding:2px 10px 8px;}
-  .adv li{position:relative; padding:6px 4px 6px 16px; border-bottom:1px solid #1e1a0c; font-size:12px; color:#cfc9b6; line-height:1.45;}
+  .adv{list-style:none; margin:0; padding:1px 10px 4px;}
+  .adv li{position:relative; padding:4px 4px 4px 15px; border-bottom:1px solid #1e1a0c; font-size:11.5px; color:#cfc9b6; line-height:1.4;}
   .adv li:before{content:"\2022"; position:absolute; left:2px; color:var(--gold); font-weight:700;}
   .adv .empty{color:var(--gold-deep); padding-left:2px;}
 
-  .field{display:flex; align-items:center; gap:8px; padding:4px 12px 8px; font-size:12.5px; color:#ddd;}
+  .field{display:flex; align-items:center; gap:8px; padding:2px 12px 4px; font-size:12px; color:#ddd;}
   .field input[type=number]{
-    width:64px; background:#111; color:var(--gold); border:1px solid var(--gold-deep);
-    border-radius:6px; padding:7px 8px; font:inherit; text-align:center;
+    width:58px; background:#111; color:var(--gold); border:1px solid var(--gold-deep);
+    border-radius:6px; padding:5px 7px; font:inherit; text-align:center;
   }
   .field select{
     background:#111; color:var(--gold); border:1px solid var(--gold-deep);
-    border-radius:6px; padding:7px 8px; font:inherit;
+    border-radius:6px; padding:5px 7px; font:inherit;
   }
 
   /* thread key */
-  .key{padding:2px 10px 8px;}
-  .key .empty{color:var(--gold-deep); font-size:12px; padding:4px 2px;}
-  .krow{display:flex; align-items:center; gap:8px; padding:5px 4px; border-bottom:1px solid #1e1a0c; font-size:12px;}
+  .key{padding:1px 10px 4px; max-height:150px; overflow-y:auto;}
+  .key .empty{color:var(--gold-deep); font-size:12px; padding:3px 2px;}
+  .krow{display:flex; align-items:center; gap:8px; padding:3px 4px; border-bottom:1px solid #1e1a0c; font-size:12px;}
   .krow .sw{width:22px; height:16px; border-radius:3px; border:1px solid #555; flex:0 0 auto;}
   .krow .sym{width:20px; text-align:center; font-weight:700; color:var(--gold); flex:0 0 auto;}
   .krow .cd{width:56px; color:#fff; flex:0 0 auto;}
@@ -180,16 +182,18 @@
       <div class="t1">DSR Systems</div>
       <div class="t2">DSR Embroidery</div>
     </div>
-    <div class="ver">Version 1h</div>
+    <div class="ver">Version 1i</div>
   </div>
 
   <div class="scroll">
     <div class="sect-label">Photo</div>
-    <div class="row">
+    <div class="row wrap">
       <label class="btn big" for="inGallery">&#128193; Choose photo</label>
       <label class="btn big" for="inCamera">&#128247; Camera</label>
+      <label class="btn big" for="inProject">&#128194; Open project</label>
       <input id="inGallery" type="file" accept="image/*,.heic,.heif">
       <input id="inCamera" type="file" accept="image/*" capture="environment">
+      <input id="inProject" type="file" accept="application/json,.json">
     </div>
 
     <div class="row wrap" style="padding-top:4px;">
@@ -198,11 +202,12 @@
     </div>
 
     <div class="sect-label">Preview</div>
-    <div class="row wrap" style="padding-top:4px;">
-      <button class="chip" id="mLayout" type="button">&#9998; Photo &amp; layout</button>
-      <button class="chip on" id="mColour" type="button">Colour blocks</button>
+    <div class="row wrap" style="padding-top:2px;">
+      <button class="chip" id="mLayout" type="button">&#9998; Layout</button>
+      <button class="chip on" id="mColour" type="button">Colour</button>
       <button class="chip" id="mStitch" type="button">Cross-stitch</button>
       <button class="chip" id="mSymbol" type="button">By numbers</button>
+      <button class="chip" id="mEmbroid" type="button">Embroidery</button>
     </div>
     <div class="preview" id="preview" tabindex="0">
       <canvas id="pv"></canvas>
@@ -312,6 +317,12 @@
       <button id="btnPng" class="sec" type="button">Save PNG</button>
     </div>
     <div class="subnote">Print: choose <b>Save as PDF</b> and set scale to <b>100% / Actual size</b> (not &ldquo;Fit&rdquo;) so multi-page charts line up. On a phone the PDF and PNG land in <b>Downloads</b>; use <b>Share</b> to send a picture straight to your gallery.</div>
+
+    <div class="sect-label">Project</div>
+    <div class="row">
+      <button id="btnSaveProj" class="sec" type="button">&#128190; Save project</button>
+    </div>
+    <div class="subnote">Saves the photo, framing, captions and symbols to a file you can re-open later with <b>Open project</b>.</div>
     <div style="height:8px;"></div>
   </div>
 
@@ -321,8 +332,8 @@
 <div class="busy" id="busy"><div class="ring"></div><div class="msg" id="busyMsg">Working&hellip;</div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
-<script src="dmc.js?v=1h"></script>
-<script src="stitchengine.js?v=1h"></script>
+<script src="dmc.js?v=1i"></script>
+<script src="stitchengine.js?v=1i"></script>
 <script>
 (function () {
   'use strict';
@@ -581,15 +592,15 @@
     $('chAuto').classList.toggle('on', opt.auto);
     $('chColourPage').classList.toggle('on', opt.colourPage);
     $('chSymWhite').classList.toggle('on', opt.symWhite);
-    var mb = { layout: 'mLayout', colour: 'mColour', stitch: 'mStitch', symbol: 'mSymbol' };
-    if (!mb[opt.mode]) opt.mode = 'colour';
-    Object.keys(mb).forEach(function (k) { $(mb[k]).classList.toggle('on', k === opt.mode); });
+    if (!MODEBTN[opt.mode]) opt.mode = 'colour';
+    Object.keys(MODEBTN).forEach(function (k) { $(MODEBTN[k]).classList.toggle('on', k === opt.mode); });
     $('layoutBar').hidden = opt.mode !== 'layout';
+    $('preview').classList.toggle('sticky', opt.mode === 'layout');
     $('btnUpdate').style.display = opt.auto ? 'none' : '';
     applySize();
   }
   function updateDetailNote() {
-    if (!origId) { $('nDetail').innerHTML = '&nbsp;'; return; }
+    if (!origId) { $('nDetail').textContent = ''; return; }
     var w = opt.detail, h = Math.max(1, Math.round(w * frame.h / frame.w));
     var fw = w / opt.count, fh = h / opt.count;
     var u = opt.unit === 'cm' ? [fw * 2.54, fh * 2.54, 'cm'] : [fw, fh, 'in'];
@@ -651,6 +662,7 @@
 
   function cellPxFor(mode) {
     var w = chart.w;
+    if (mode === 'embroidery') return Math.max(9, Math.min(22, Math.round(2400 / w)));
     if (mode === 'symbol') return Math.max(8, Math.min(26, Math.round(1600 / w)));
     if (mode === 'stitch') return Math.max(4, Math.min(18, Math.round(1300 / w)));
     return Math.max(3, Math.min(14, Math.round(1100 / w)));
@@ -660,7 +672,9 @@
     if (!chart) return;
     $('hint').style.display = 'none';
     $('pvTools').style.display = opt.mode === 'layout' ? 'none' : 'flex';
-    var c = E.renderToCanvas(chart, opt.mode, cellPxFor(opt.mode));
+    var c = opt.mode === 'embroidery'
+      ? E.renderEmbroidery(chart, cellPxFor('embroidery'))
+      : E.renderToCanvas(chart, opt.mode, cellPxFor(opt.mode));
     workCanvas.width = c.width; workCanvas.height = c.height;
     workCanvas.getContext('2d').drawImage(c, 0, 0);
     if (refit) fitPreview(); else renderPreview();
@@ -785,6 +799,7 @@
     var isChart = function () { return opt.mode !== 'layout'; };
 
     p.addEventListener('pointerdown', function (e) {
+      if (e.target.closest && e.target.closest('.pv-tools')) return;   // zoom buttons handle themselves
       // chart mode, fitted, single touch -> let the page scroll through
       if (isChart() && Object.keys(pts).length === 0 && view.atFit && e.pointerType === 'touch') return;
       p.setPointerCapture(e.pointerId);
@@ -865,6 +880,7 @@
 
     p.addEventListener('click', function (e) {
       if (opt.mode === 'layout') return;
+      if (e.target.closest && e.target.closest('.pv-tools')) return;   // don't hijack the zoom buttons
       var now = Date.now();
       if (now - lastTap < 300) {
         var r = p.getBoundingClientRect();
@@ -991,20 +1007,25 @@
   $('fPages').addEventListener('change', function () { opt.pages = this.value; save(); });
   $('btnUpdate').addEventListener('click', runBuild);
 
-  var MODEBTN = { layout: 'mLayout', colour: 'mColour', stitch: 'mStitch', symbol: 'mSymbol' };
+  var MODEBTN = { layout: 'mLayout', colour: 'mColour', stitch: 'mStitch', symbol: 'mSymbol', embroidery: 'mEmbroid' };
   function setMode(m) {
     opt.mode = m; save();
     Object.keys(MODEBTN).forEach(function (k) { $(MODEBTN[k]).classList.toggle('on', k === m); });
     $('layoutBar').hidden = m !== 'layout';
+    $('preview').classList.toggle('sticky', m === 'layout');
     updateTouchAction();
     if (m === 'layout') { $('pvTools').style.display = origId ? 'flex' : 'none'; buildPhotoCanvas(); renderLayout(); }
-    else if (chart) renderChart(true);
+    else if (chart) {
+      if (m === 'embroidery') { busy(true, 'Rendering embroidery…'); setTimeout(function () { renderChart(true); busy(false); }, 15); }
+      else renderChart(true);
+    }
     else { $('pvTools').style.display = 'none'; }
   }
   $('mLayout').addEventListener('click', function () { setMode('layout'); });
   $('mColour').addEventListener('click', function () { setMode('colour'); });
   $('mStitch').addEventListener('click', function () { setMode('stitch'); });
   $('mSymbol').addEventListener('click', function () { setMode('symbol'); });
+  $('mEmbroid').addEventListener('click', function () { setMode('embroidery'); });
 
   function zoomStep(f, sx, sy) {
     var s = pvSize();
@@ -1152,8 +1173,9 @@
   });
 
   function chartPng(cb) {
-    var px = opt.mode === 'symbol' ? 22 : (opt.mode === 'stitch' ? 16 : 12);
-    var c = E.renderToCanvas(chart, opt.mode, px);
+    var c;
+    if (opt.mode === 'embroidery') c = E.renderEmbroidery(chart, Math.max(14, Math.min(26, Math.round(3200 / chart.w))));
+    else c = E.renderToCanvas(chart, opt.mode, opt.mode === 'symbol' ? 22 : (opt.mode === 'stitch' ? 16 : 12));
     c.toBlob(function (b) { cb(b, c); }, 'image/png');
   }
   function pngName() { return 'embroidery_' + opt.mode + '_' + chart.w + 'x' + chart.h + '.png'; }
@@ -1192,6 +1214,108 @@
       });
     }, 30);
   });
+
+  /* ---------- save / open project ---------- */
+  function idToDataURL(id, type, quality, maxDim) {
+    var sc = maxDim ? Math.min(1, maxDim / Math.max(id.width, id.height)) : 1;
+    var w = Math.max(1, Math.round(id.width * sc)), h = Math.max(1, Math.round(id.height * sc));
+    var src = document.createElement('canvas'); src.width = id.width; src.height = id.height;
+    src.getContext('2d').putImageData(id, 0, 0);
+    var c = document.createElement('canvas'); c.width = w; c.height = h;
+    var g = c.getContext('2d'); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(src, 0, 0, w, h);
+    return { url: c.toDataURL(type, quality), scale: sc };
+  }
+  function dataURLToId(url) {
+    return new Promise(function (res, rej) {
+      var im = new Image();
+      im.onload = function () {
+        var c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight;
+        var g = c.getContext('2d'); g.drawImage(im, 0, 0);
+        res(g.getImageData(0, 0, c.width, c.height));
+      };
+      im.onerror = function () { rej(new Error('bad image data')); };
+      im.src = url;
+    });
+  }
+
+  $('btnSaveProj').addEventListener('click', function () {
+    if (!origId) { status('Load a photo first.'); return; }
+    busy(true, 'Saving project…');
+    setTimeout(function () {
+      var MAX = 1600;
+      var photo = idToDataURL(origId, 'image/jpeg', 0.9, MAX);
+      var cut = null;
+      if (cutId) cut = idToDataURL(cutId, 'image/png', 1, MAX);
+      var proj = {
+        app: 'DSR Embroidery', v: 4, saved: new Date().toISOString(),
+        photo: photo.url,
+        cut: cut ? cut.url : null, cutHow: cutHow,
+        // ptx.scale is relative to the full photo; rescale to the stored (downscaled) one
+        ptx: { scale: ptx.scale / photo.scale, ox: ptx.ox, oy: ptx.oy },
+        frame: { w: frame.w, h: frame.h },
+        overlays: overlays,
+        opt: opt
+      };
+      var blob = new Blob([JSON.stringify(proj)], { type: 'application/json' });
+      var stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+      var name = 'DSR-Embroidery-' + stamp + '.json';
+      var u = URL.createObjectURL(blob);
+      var a = document.createElement('a'); a.href = u; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(u); }, 20000);
+      busy(false);
+      status('Project saved to Downloads: ' + name);
+    }, 20);
+  });
+
+  async function importProject(file) {
+    if (!file) return;
+    busy(true, 'Opening project…');
+    var text;
+    try { text = await file.text(); } catch (e) { busy(false); status('Could not read that file.'); return; }
+    var proj;
+    try { proj = JSON.parse(text); } catch (e) { busy(false); status('That is not a project file.'); return; }
+    if (!proj || !proj.photo) { busy(false); status('Project file has no photo.'); return; }
+    try {
+      origId = await dataURLToId(proj.photo);
+      cutId = proj.cut ? await dataURLToId(proj.cut) : null;
+      cutHow = proj.cutHow || (cutId ? 'ai' : '');
+    } catch (e) { busy(false); status('Project photo is damaged.'); return; }
+
+    Object.assign(opt, proj.opt || {});
+    if (!MODEBTN[opt.mode]) opt.mode = 'colour';
+    overlays = (proj.overlays || []).map(function (o) { return Object.assign({}, o); });
+    uid = overlays.reduce(function (m, o) { return Math.max(m, o.id || 0); }, 0) + 1;
+    selId = null; $('oved').hidden = true; $('sympal').hidden = true;
+
+    recomputeFrame();
+    if (proj.frame) { frame.w = proj.frame.w; frame.h = proj.frame.h; }
+    if (proj.ptx) { ptx.scale = proj.ptx.scale; ptx.ox = proj.ptx.ox; ptx.oy = proj.ptx.oy; }
+    else resetPhotoTransform();
+    buildPhotoCanvas();
+
+    syncControls();                              // applies settings; may recompute frame from a preset
+    if (proj.frame) { frame.w = proj.frame.w; frame.h = proj.frame.h; }
+    if (proj.ptx) { ptx.scale = proj.ptx.scale; ptx.ox = proj.ptx.ox; ptx.oy = proj.ptx.oy; }
+
+    $('chNoBg').classList.toggle('on', !!opt.noBg && !!cutId);
+    $('nBg').textContent = (opt.noBg && cutId)
+      ? 'Subject cut out – blank squares = no stitch. Tap again to undo.'
+      : 'Cuts out the main subject. Tap again to undo.';
+    $('layoutBar').hidden = opt.mode !== 'layout';
+    $('preview').classList.toggle('sticky', opt.mode === 'layout');
+    $('hint').style.display = 'none';
+    updateTouchAction();
+
+    ensureScriptFont(function () {
+      busy(false);
+      if (opt.mode === 'layout') renderLayout();
+      runBuild();
+      status('Project opened.');
+    });
+  }
+  $('inProject').addEventListener('change', function (e) { importProject(e.target.files[0]); e.target.value = ''; });
 
   if ('serviceWorker' in navigator) {
     var swReloaded = false;

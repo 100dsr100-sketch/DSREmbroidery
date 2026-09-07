@@ -387,6 +387,66 @@
     return c;
   }
 
+  /* ---------- simulated finished-embroidery render ---------- */
+
+  function renderEmbroidery(chart, cellPx) {
+    cellPx = Math.max(6, cellPx | 0 || 14);
+    var w = chart.w, h = chart.h, P = chart.palette, id = chart.idx;
+    var c = document.createElement('canvas');
+    c.width = w * cellPx; c.height = h * cellPx;
+    var g = c.getContext('2d');
+    var big = w * h > 30000;
+
+    // Aida cloth ground
+    g.fillStyle = '#efe8d8'; g.fillRect(0, 0, c.width, c.height);
+    g.strokeStyle = 'rgba(0,0,0,0.045)'; g.lineWidth = 1;
+    g.beginPath();
+    for (var fx = 0; fx <= w; fx++) { g.moveTo(fx * cellPx + 0.5, 0); g.lineTo(fx * cellPx + 0.5, c.height); }
+    for (var fy = 0; fy <= h; fy++) { g.moveTo(0, fy * cellPx + 0.5); g.lineTo(c.width, fy * cellPx + 0.5); }
+    g.stroke();
+    if (!big && cellPx >= 8) {
+      g.fillStyle = 'rgba(110,100,84,0.16)';
+      for (var wy = 0; wy <= h; wy++) for (var wx = 0; wx <= w; wx++) {
+        g.beginPath(); g.arc(wx * cellPx, wy * cellPx, cellPx * 0.09, 0, 7); g.fill();
+      }
+    }
+
+    function rnd(n) { var x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+    function shade(hx, amt) {
+      var r = parseInt(hx.slice(1, 3), 16) + amt, gg = parseInt(hx.slice(3, 5), 16) + amt, b = parseInt(hx.slice(5, 7), 16) + amt;
+      return 'rgb(' + (r < 0 ? 0 : r > 255 ? 255 : r | 0) + ',' + (gg < 0 ? 0 : gg > 255 ? 255 : gg | 0) + ',' + (b < 0 ? 0 : b > 255 ? 255 : b | 0) + ')';
+    }
+    var m = cellPx * 0.13, lw = Math.max(2, cellPx * 0.32);
+    g.lineCap = 'round';
+    function seg(x0, y0, x1, y1, col, wd) { g.lineWidth = wd; g.strokeStyle = col; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); }
+
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var pi = id[y * w + x]; if (pi < 0) continue;
+        var hex = P[pi].hex, X = x * cellPx, Y = y * cellPx;
+        var j = (rnd(y * w + x) - 0.5) * cellPx * 0.12;
+        var ax = X + m + j, ay = Y + m - j, bx = X + cellPx - m + j, by = Y + cellPx - m - j;
+        var dx = X + m - j, dy = Y + cellPx - m + j, ex = X + cellPx - m - j, ey = Y + m + j;
+        // soft shadow
+        seg(ax + 1.4, ay + 2, bx + 1.4, by + 2, 'rgba(0,0,0,0.20)', lw * 1.05);
+        seg(dx + 1.4, dy + 2, ex + 1.4, ey + 2, 'rgba(0,0,0,0.20)', lw * 1.05);
+        // bottom thread "\"
+        seg(ax, ay, bx, by, shade(hex, -30), lw);
+        seg(ax, ay, bx, by, hex, lw * 0.7);
+        seg(ax - lw * 0.1, ay - lw * 0.1, bx - lw * 0.1, by - lw * 0.1, shade(hex, 46), lw * 0.2);
+        // top thread "/"
+        seg(dx, dy, ex, ey, shade(hex, -36), lw);
+        seg(dx, dy, ex, ey, hex, lw * 0.7);
+        seg(dx - lw * 0.1, dy - lw * 0.1, ex - lw * 0.1, ey - lw * 0.1, shade(hex, 58), lw * 0.2);
+      }
+    }
+
+    var vg = g.createRadialGradient(c.width / 2, c.height / 2, Math.min(c.width, c.height) * 0.25, c.width / 2, c.height / 2, Math.max(c.width, c.height) * 0.7);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.15)');
+    g.fillStyle = vg; g.fillRect(0, 0, c.width, c.height);
+    return c;
+  }
+
   /* ---------- recommended stitches ---------- */
 
   function stitchAdvice(chart, count) {
@@ -604,6 +664,7 @@
     removeBackground: removeBackground,
     build: build,
     renderToCanvas: renderToCanvas,
+    renderEmbroidery: renderEmbroidery,
     stitchAdvice: stitchAdvice,
     buildPrintDoc: buildPrintDoc
   };
