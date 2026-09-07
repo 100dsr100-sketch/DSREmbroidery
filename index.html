@@ -21,6 +21,11 @@
 }
 </script>
 <style>
+  @font-face{
+    font-family:"Dancing Script";
+    src:url("dancingscript.woff2?v=1g") format("woff2");
+    font-weight:400 700; font-display:swap;
+  }
   :root{
     --gold:#FFD700; --gold-deep:#D4AF42; --bg:#000; --panel:#111;
     --panel2:#1a1a1a; --preview:#1c1c1c; --line:#3a2f10;
@@ -129,6 +134,8 @@
   .oved .sw.on{border-color:var(--gold);}
   .oved input[type=color]{width:40px; height:32px; padding:0; border:1px solid var(--gold-deep); border-radius:6px; background:#111;}
   .oved input[type=range]{flex:1 1 120px;}
+  .oved select{background:#111; color:var(--gold); border:1px solid var(--gold-deep); border-radius:6px; padding:8px 8px; font:inherit; flex:0 0 auto;}
+  #preview:focus{outline:2px solid var(--gold-deep); outline-offset:-2px;}
   .adv{list-style:none; margin:0; padding:2px 10px 8px;}
   .adv li{position:relative; padding:6px 4px 6px 16px; border-bottom:1px solid #1e1a0c; font-size:12px; color:#cfc9b6; line-height:1.45;}
   .adv li:before{content:"\2022"; position:absolute; left:2px; color:var(--gold); font-weight:700;}
@@ -173,7 +180,7 @@
       <div class="t1">DSR Systems</div>
       <div class="t2">DSR Embroidery</div>
     </div>
-    <div class="ver">Version 1f</div>
+    <div class="ver">Version 1g</div>
   </div>
 
   <div class="scroll">
@@ -197,7 +204,7 @@
       <button class="chip" id="mStitch" type="button">Cross-stitch</button>
       <button class="chip" id="mSymbol" type="button">By numbers</button>
     </div>
-    <div class="preview" id="preview">
+    <div class="preview" id="preview" tabindex="0">
       <canvas id="pv"></canvas>
       <div class="hint" id="hint">Choose a photo, or drop one here.<br>It becomes a cross-stitch / embroidery&nbsp;chart.</div>
       <div class="pv-tools" id="pvTools" style="display:none;">
@@ -216,7 +223,14 @@
       <div class="subnote">Drag the photo to reposition &middot; pinch to zoom &middot; tap a caption/symbol to edit it.</div>
       <div class="sympal" id="sympal" hidden></div>
       <div class="oved" id="oved" hidden>
-        <div class="r" id="ovTextRow"><input type="text" id="ovText" maxlength="40" placeholder="Caption text"></div>
+        <div class="r" id="ovTextRow">
+          <input type="text" id="ovText" maxlength="40" placeholder="Caption text">
+          <select id="ovFont">
+            <option value="script">Script</option>
+            <option value="block">Block</option>
+            <option value="serif">Serif</option>
+          </select>
+        </div>
         <div class="r" id="ovSwatch"></div>
         <div class="r">
           <span class="subnote" style="padding:0;">Colour</span>
@@ -307,8 +321,8 @@
 <div class="busy" id="busy"><div class="ring"></div><div class="msg" id="busyMsg">Working&hellip;</div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
-<script src="dmc.js?v=1f"></script>
-<script src="stitchengine.js?v=1f"></script>
+<script src="dmc.js?v=1g"></script>
+<script src="stitchengine.js?v=1g"></script>
 <script>
 (function () {
   'use strict';
@@ -421,7 +435,10 @@
     var rgb = hex2rgb(o.color);
     g.lineJoin = 'round'; g.miterLimit = 2;
     if (o.kind === 'text') {
-      g.font = '800 ' + fs + 'px "Segoe UI","Arial Black",Arial,sans-serif';
+      var ff = o.font === 'block' ? '800 ' + fs + 'px "Segoe UI","Arial Black",Arial,sans-serif'
+             : o.font === 'serif' ? '700 ' + fs + 'px Georgia,"Times New Roman",serif'
+             : '700 ' + fs + 'px "Dancing Script","Segoe Script","Bradley Hand","Snell Roundhand","Brush Script MT",cursive';
+      g.font = ff;
       g.textAlign = 'center'; g.textBaseline = 'middle';
       g.lineWidth = Math.max(2, fs * 0.13);
       g.strokeStyle = relLum(rgb) > 150 ? 'rgba(0,0,0,.55)' : 'rgba(255,255,255,.7)';
@@ -435,6 +452,14 @@
       drawGlyph(g, o.text, fs);
     }
     g.restore();
+  }
+
+  var scriptFontReady = false;
+  function ensureScriptFont(cb) {
+    if (scriptFontReady || !document.fonts || !document.fonts.load) { if (cb) cb(); return; }
+    document.fonts.load('700 64px "Dancing Script"').then(function () {
+      scriptFontReady = true; if (cb) cb();
+    }).catch(function () { if (cb) cb(); });
   }
 
   function buildPhotoCanvas() {
@@ -466,12 +491,21 @@
     ptx.oy = (frame.h - origId.height * s) / 2;
   }
   function clampPhoto() {
-    var dw = origId.width * ptx.scale, dh = origId.height * ptx.scale;
     var minS = Math.max(frame.w / origId.width, frame.h / origId.height) * 0.4;
     if (ptx.scale < minS) ptx.scale = minS;
-    dw = origId.width * ptx.scale; dh = origId.height * ptx.scale;
+    if (ptx.scale > minS * 40) ptx.scale = minS * 40;
+    var dw = origId.width * ptx.scale, dh = origId.height * ptx.scale;
     ptx.ox = Math.min(frame.w * 0.5, Math.max(frame.w * 0.5 - dw, ptx.ox));
     ptx.oy = Math.min(frame.h * 0.5, Math.max(frame.h * 0.5 - dh, ptx.oy));
+  }
+  // zoom the photo by factor f, keeping the frame point under (sx,sy screen px) fixed
+  function zoomPhotoAt(sx, sy, f) {
+    if (!origId) return;
+    var g0 = screenToFrame(sx, sy);
+    var pxp = (g0.x - ptx.ox) / ptx.scale, pyp = (g0.y - ptx.oy) / ptx.scale;
+    ptx.scale *= f;
+    ptx.ox = g0.x - pxp * ptx.scale; ptx.oy = g0.y - pyp * ptx.scale;
+    clampPhoto(); renderLayout();
   }
 
   // Compose the framed photo + overlays into one ImageData for the chart builder.
@@ -702,6 +736,7 @@
     g.fillStyle = '#141414'; g.fillRect(0, 0, s.w, s.h);
     if (!origId) return;
     $('hint').style.display = 'none';
+    $('pvTools').style.display = 'flex';
     var fit = Math.min(s.w / frame.w, s.h / frame.h) * 0.96;
     var ox = (s.w - frame.w * fit) / 2, oy = (s.h - frame.h * fit) / 2;
     lmap = { fit: fit, ox: ox, oy: oy };
@@ -736,7 +771,7 @@
 
   /* ---------- unified pointer gestures ---------- */
   (function gestures() {
-    var p = $('preview'), pts = {}, pinch = null, drag = null, lastTap = 0, moved = 0;
+    var p = $('preview'), pts = {}, pinch = null, drag = null, lastTap = 0, moved = 0, pinched = false;
     var rel = function (e) { var r = p.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
     var isChart = function () { return opt.mode !== 'layout'; };
 
@@ -749,7 +784,7 @@
       if (ids.length === 2) {
         var a = pts[ids[0]], b = pts[ids[1]];
         pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, s: isChart() ? view.scale : ptx.scale };
-        drag = null;
+        drag = null; pinched = true;
       } else if (isChart()) {
         drag = { x: e.clientX, y: e.clientY, ox: view.ox, oy: view.oy };
       } else {
@@ -776,8 +811,8 @@
           view.ox = pinch.cx - ix * ns; view.oy = pinch.cy - iy * ns;
           clampPan(); renderPreview();
         } else {
-          ptx.scale = Math.max(0.05, pinch.s * f);
-          clampPhoto(); renderLayout();
+          var fac = Math.max(0.02, pinch.s * f) / ptx.scale;
+          zoomPhotoAt(pinch.cx, pinch.cy, fac);
         }
       } else if (drag && ids.length === 1) {
         if (isChart()) {
@@ -798,7 +833,7 @@
     });
 
     var up = function (e) {
-      var wasTap = moved < 7;
+      var wasTap = moved < 7 && !pinched;
       delete pts[e.pointerId];
       if (Object.keys(pts).length < 2) pinch = null;
       if (!Object.keys(pts).length) {
@@ -808,11 +843,13 @@
             var f = screenToFrame(e.clientX - r.left, e.clientY - r.top);
             var hit = hitOverlay(f.x, f.y);
             selectOverlay(hit ? hit.id : null);
-          } else if (drag) {
+          } else if (drag || pinched) {
             scheduleBuild();
           }
+        } else if (pinched) {
+          updateTouchAction();
         }
-        drag = null;
+        drag = null; pinched = false;
       }
     };
     p.addEventListener('pointerup', up); p.addEventListener('pointercancel', up);
@@ -940,7 +977,7 @@
     Object.keys(MODEBTN).forEach(function (k) { $(MODEBTN[k]).classList.toggle('on', k === m); });
     $('layoutBar').hidden = m !== 'layout';
     updateTouchAction();
-    if (m === 'layout') { $('pvTools').style.display = 'none'; buildPhotoCanvas(); renderLayout(); }
+    if (m === 'layout') { $('pvTools').style.display = origId ? 'flex' : 'none'; buildPhotoCanvas(); renderLayout(); }
     else if (chart) renderChart(true);
     else { $('pvTools').style.display = 'none'; }
   }
@@ -949,9 +986,41 @@
   $('mStitch').addEventListener('click', function () { setMode('stitch'); });
   $('mSymbol').addEventListener('click', function () { setMode('symbol'); });
 
-  $('btnFit').addEventListener('click', function () { fitPreview(); updateTouchAction(); });
-  $('btnZIn').addEventListener('click', function () { var s = pvSize(); zoomAt(s.w / 2, s.h / 2, 1.3); });
-  $('btnZOut').addEventListener('click', function () { var s = pvSize(); zoomAt(s.w / 2, s.h / 2, 1 / 1.3); });
+  function zoomStep(f, sx, sy) {
+    var s = pvSize();
+    sx = sx == null ? s.w / 2 : sx; sy = sy == null ? s.h / 2 : sy;
+    if (opt.mode === 'layout') { zoomPhotoAt(sx, sy, f); scheduleBuild(); }
+    else { zoomAt(sx, sy, f); }
+  }
+  $('btnFit').addEventListener('click', function () {
+    if (opt.mode === 'layout') { resetPhotoTransform(); renderLayout(); scheduleBuild(); }
+    else { fitPreview(); updateTouchAction(); }
+  });
+  $('btnZIn').addEventListener('click', function () { zoomStep(1.3); });
+  $('btnZOut').addEventListener('click', function () { zoomStep(1 / 1.3); });
+
+  // mouse-wheel zoom over the preview (photo in layout mode, chart otherwise)
+  $('preview').addEventListener('wheel', function (e) {
+    if (!origId && opt.mode !== 'layout') { if (!chart) return; }
+    if (opt.mode === 'layout' && !origId) return;
+    e.preventDefault();
+    var r = this.getBoundingClientRect();
+    zoomStep(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+
+  // Page Up / Page Down zoom while the preview is hovered or focused
+  var previewHover = false;
+  $('preview').addEventListener('mouseenter', function () { previewHover = true; });
+  $('preview').addEventListener('mouseleave', function () { previewHover = false; });
+  window.addEventListener('keydown', function (e) {
+    if (e.key !== 'PageUp' && e.key !== 'PageDown') return;
+    var ae = document.activeElement || {};
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+    if (!previewHover && ae !== $('preview')) return;
+    if (opt.mode === 'layout' ? !origId : !chart) return;
+    e.preventDefault();
+    zoomStep(e.key === 'PageUp' ? 1.25 : 1 / 1.25);
+  });
 
   window.addEventListener('resize', function () {
     if (opt.mode === 'layout') renderLayout();
@@ -966,7 +1035,7 @@
     $('oved').hidden = !o;
     if (o) {
       $('ovTextRow').hidden = o.kind !== 'text';
-      if (o.kind === 'text') $('ovText').value = o.text;
+      if (o.kind === 'text') { $('ovText').value = o.text; $('ovFont').value = o.font || 'script'; }
       $('ovColor').value = /^#[0-9a-f]{6}$/i.test(o.color) ? o.color : '#000000';
       $('ovSize').value = o.size;
       markSwatch(o.color);
@@ -1009,10 +1078,10 @@
 
   $('btnAddCap').addEventListener('click', function () {
     if (!origId) { status('Choose a photo first.'); return; }
-    overlays.push({ id: uid++, kind: 'text', text: 'Caption', cx: 0.5, cy: 0.5, size: 14, color: '#C81E2E' });
+    overlays.push({ id: uid++, kind: 'text', text: 'Caption', cx: 0.5, cy: 0.5, size: 15, color: '#C81E2E', font: 'script' });
     selectOverlay(overlays[overlays.length - 1].id);
     $('ovText').focus(); $('ovText').select();
-    scheduleBuild();
+    ensureScriptFont(function () { renderLayout(); scheduleBuild(); });
   });
   $('btnAddSym').addEventListener('click', function () {
     if (!origId) { status('Choose a photo first.'); return; }
@@ -1022,6 +1091,12 @@
     resetPhotoTransform(); renderLayout(); scheduleBuild();
   });
   $('ovText').addEventListener('input', function () { var o = selOv(); if (o) { o.text = this.value; ovChanged(); } });
+  $('ovFont').addEventListener('change', function () {
+    var o = selOv(); if (!o) return;
+    o.font = this.value;
+    if (o.font === 'script') ensureScriptFont(function () { renderLayout(); scheduleBuild(); });
+    else ovChanged();
+  });
   $('ovColor').addEventListener('input', function () { var o = selOv(); if (o) { o.color = this.value; markSwatch(this.value); ovChanged(); } });
   $('ovSize').addEventListener('input', function () { var o = selOv(); if (o) { o.size = +this.value; ovChanged(); } });
   $('ovDel').addEventListener('click', function () {
@@ -1105,6 +1180,16 @@
     });
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('service-worker.js').then(function (reg) { reg.update(); }).catch(function () {});
+    });
+  }
+
+  ensureScriptFont();
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () {
+      if (overlays.some(function (o) { return o.kind === 'text' && (o.font || 'script') === 'script'; })) {
+        if (opt.mode === 'layout') renderLayout();
+        scheduleBuild(0);
+      }
     });
   }
 
