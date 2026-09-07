@@ -2,23 +2,38 @@
  * ---------------------------------------------------------------------------
  * Turns the app's framed photo into an "embroidery" render.
  * Tries, in order:
- *   1. Cloudflare Workers AI img2img  (needs an "AI" binding + model access)
- *   2. Pollinations Flux img2img      (keyless, no account – with one retry)
+ *   1. Hugging Face Inference Providers image-to-image  (needs HF_TOKEN)
+ *   2. Cloudflare Workers AI img2img                    (needs an "AI" binding)
+ *   3. Pollinations                                     (keyless, text-driven)
  *
  * DEPLOY
  *   1. Edit code: paste this whole file over what's there, Deploy.
- *   2. Bindings tab -> Add binding -> "Workers AI", Variable name: AI
- *      (still worth adding even if the models are blocked – harmless).
- *   3. Copy the Worker URL into the app (Embroidery -> "AI URL").
+ *   2. Settings -> Variables and Secrets -> Add:
+ *        type Secret,  name HF_TOKEN,  value = a Hugging Face token with the
+ *        "Inference Providers" permission (huggingface.co/settings/tokens/new
+ *         ?ownUserPermissions=inference.serverless.write&tokenType=fineGrained)
+ *   3. (optional) Bindings tab -> Add binding -> Workers AI, name it AI.
+ *   4. Copy the Worker URL into the app (Embroidery -> "AI URL").
  *
  * Optional Worker variables (Settings -> Variables, type Text):
- *   AI_MODEL     force one Workers-AI model instead of the list below
- *   AI_STRENGTH  0-1, default 0.6
- *   AI_STEPS     default 20
+ *   HF_MODEL     force one HF model (default list below)
+ *   AI_MODEL / AI_STRENGTH (0.6) / AI_STEPS (20)   – Workers-AI tuning
  *   NO_POLLINATIONS  "1" disables the keyless fallback
  *   ALLOWED_ORIGINS  e.g. https://100dsr100-sketch.github.io,http://localhost
  * ---------------------------------------------------------------------------
  */
+
+// Hugging Face image-to-image / image-editing models, tried in order.
+const HF_MODELS = [
+  'black-forest-labs/FLUX.1-Kontext-dev',
+  'timbrooks/instruct-pix2pix'
+];
+const HF_PROMPT =
+  'Turn this photo into a hyper-detailed hand-embroidered thread portrait: dense directional ' +
+  'long-and-short and satin stitches following the fur and contours, individual embroidery ' +
+  'floss strands and needle texture clearly visible, soft sheen of stranded cotton, fine ' +
+  'stitch shadows, mounted on dark textured linen with a clean stitched outline. Keep the ' +
+  'exact subject, pose, colours and composition.';
 
 // [model, how to pass the source image]
 const CF_MODELS = [
@@ -94,7 +109,41 @@ export default {
     const prompt = PROMPT + (body.extra ? ', ' + body.extra : '');
     const errs = [];
 
-    // ---- 1. Cloudflare Workers AI ----
+    // ---- 1. Hugging Face image-to-image ----
+    if (env.HF_TOKEN) {
+      const list = env.HF_MODEL ? [env.HF_MODEL] : HF_MODELS;
+      const hfPrompt = HF_PROMPT + (body.extra ? ' ' + body.extra : '');
+      for (const model of list) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const hr = await fetch('https://router.huggingface.co/hf-inference/models/' + model, {
+              method: 'POST',
+              headers: { Authorization: 'Bearer ' + env.HF_TOKEN, 'Content-Type': 'application/json', Accept: 'image/png' },
+              body: JSON.stringify({
+                inputs: data,
+                parameters: { prompt: hfPrompt, negative_prompt: NEG, guidance_scale: 7.5, num_inference_steps: steps }
+              })
+            });
+            const ct = hr.headers.get('content-type') || '';
+            if (hr.ok && ct.startsWith('image')) {
+              const buf = await hr.arrayBuffer();
+              if (buf.byteLength > 500) return json({ image: b64FromBuf(buf), mime: ct, model: 'hf/' + model }, 200, ch);
+              errs.push('hf/' + model + ': tiny');
+              break;
+            }
+            const t = (await hr.text()).slice(0, 200);
+            errs.push('hf/' + model + ': HTTP ' + hr.status + ' ' + t);
+            if (hr.status === 503 && /loading/i.test(t) && attempt === 0) { await sleep(15000); continue; }
+            break;
+          } catch (e) {
+            errs.push('hf/' + model + ': ' + ((e && e.message) || e));
+            break;
+          }
+        }
+      }
+    }
+
+    // ---- 2. Cloudflare Workers AI ----
     if (env.AI) {
       const list = (body.model || env.AI_MODEL) ? [[body.model || env.AI_MODEL, 'b64']] : CF_MODELS;
       for (const [model, how] of list) {
@@ -116,7 +165,7 @@ export default {
       errs.push('no AI binding');
     }
 
-    // ---- 2. Pollinations (keyless), one retry on 429/5xx ----
+    // ---- 3. Pollinations (keyless), one retry on 429/5xx ----
     if (env.NO_POLLINATIONS !== '1') {
       const id = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + '' + Math.random());
       const stashUrl = url.origin + '/_img/' + id + '.jpg';
