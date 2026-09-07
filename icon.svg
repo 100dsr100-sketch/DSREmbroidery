@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="13" fill="#000"/>
+  <rect x="2.5" y="2.5" width="59" height="59" rx="11" fill="none" stroke="#D4AF42" stroke-width="2"/>
+  <g stroke="#FFD700" stroke-width="3.4" stroke-linecap="round">
+    <!-- a little heart drawn in cross-stitches -->
+    <g>
+      <path d="M20 22l8 8M28 22l-8 8"/>
+      <path d="M36 22l8 8M44 22l-8 8"/>
+      <path d="M14 30l8 8M22 30l-8 8"/>
+      <path d="M28 30l8 8M36 30l-8 8"/>
+      <path d="M42 30l8 8M50 30l-8 8"/>
+      <path d="M20 38l8 8M28 38l-8 8"/>
+      <path d="M36 38l8 8M44 38l-8 8"/>
+      <path d="M28 46l8 8M36 46l-8 8"/>
+    </g>
+  </g>
+</svg>
