@@ -1,49 +1,40 @@
 /* DSR Embroidery - offline shell cache.
-   HTML/navigations: network-first (updates show as soon as you're online).
-   Other same-origin assets: cache-first with background refresh.
-   Cross-origin (heic2any CDN): straight to network. */
-var CACHE = 'dsr-embroidery-v1';
+   Same-origin: network-first (so a new deploy is picked up immediately),
+   falling back to cache when offline. Cross-origin (CDN model/wasm): passthrough. */
+var CACHE = 'dsr-embroidery-v3';
 var SHELL = ['./', './index.html', './stitchengine.js', './dmc.js', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', function (e) {
-  e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));
+  e.waitUntil(
+    caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); })
+  );
 });
 
 self.addEventListener('activate', function (e) {
-  e.waitUntil(caches.keys().then(function (keys) {
-    return Promise.all(keys.filter(function (k) { return k !== CACHE; }).map(function (k) { return caches.delete(k); }));
-  }).then(function () { return self.clients.claim(); }));
+  e.waitUntil(
+    caches.keys().then(function (keys) {
+      return Promise.all(keys.filter(function (k) { return k !== CACHE; }).map(function (k) { return caches.delete(k); }));
+    }).then(function () { return self.clients.claim(); })
+  );
 });
 
 self.addEventListener('fetch', function (e) {
   var req = e.request;
+  if (req.method !== 'GET') return;
   var url = new URL(req.url);
-  if (url.origin !== location.origin) return;
-
-  var isDoc = req.mode === 'navigate' ||
-    (req.headers.get('accept') || '').indexOf('text/html') !== -1;
-
-  if (isDoc) {
-    e.respondWith(
-      fetch(req).then(function (res) {
-        var copy = res.clone();
-        caches.open(CACHE).then(function (c) { c.put(req, copy); });
-        return res;
-      }).catch(function () {
-        return caches.match(req).then(function (h) { return h || caches.match('./index.html'); });
-      })
-    );
-    return;
-  }
+  if (url.origin !== location.origin) return;                 // CDN assets -> straight to network
 
   e.respondWith(
-    caches.match(req).then(function (hit) {
-      var net = fetch(req).then(function (res) {
+    fetch(req).then(function (res) {
+      if (res && res.ok) {
         var copy = res.clone();
         caches.open(CACHE).then(function (c) { c.put(req, copy); });
-        return res;
-      }).catch(function () { return hit; });
-      return hit || net;
+      }
+      return res;
+    }).catch(function () {
+      return caches.match(req).then(function (hit) {
+        return hit || caches.match('./index.html');
+      });
     })
   );
 });
