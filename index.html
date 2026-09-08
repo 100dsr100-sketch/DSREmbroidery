@@ -23,7 +23,7 @@
 <style>
   @font-face{
     font-family:"Dancing Script";
-    src:url("dancingscript.woff2?v=1m") format("woff2");
+    src:url("dancingscript.woff2?v=1n") format("woff2");
     font-weight:400 700; font-display:swap;
   }
   :root{
@@ -182,7 +182,7 @@
       <div class="t1">DSR Systems</div>
       <div class="t2">DSR Embroidery</div>
     </div>
-    <div class="ver">Version 1m</div>
+    <div class="ver">Version 1n</div>
   </div>
 
   <div class="scroll">
@@ -248,16 +248,10 @@
     </div>
 
     <div id="embBar" hidden>
-      <div class="row wrap" style="padding-top:6px;">
-        <button class="mini" id="btnAiRender" type="button">&#10024; Render with AI</button>
-        <button class="mini" id="btnAiClear" type="button" hidden>Show simulated</button>
+      <div class="row wrap" style="padding-top:2px;">
+        <button class="mini" id="btnAiRedo" type="button">&#8635; Re-render</button>
       </div>
-      <div class="field">
-        <span>AI URL</span>
-        <input type="text" id="aiUrl" placeholder="https://&hellip;.workers.dev" autocapitalize="off" autocomplete="off" spellcheck="false"
-               style="flex:1 1 150px; min-width:110px; background:#111; color:var(--gold); border:1px solid var(--gold-deep); border-radius:6px; padding:5px 7px; font:inherit;">
-      </div>
-      <div class="subnote">A real AI render of your framed photo via a one-time free Cloudflare Worker (Workers AI). Without a URL this mode shows a simulated render. ~10&ndash;25&nbsp;s each.</div>
+      <div class="subnote">Tapping <b>Embroidery</b> renders your framed photo with AI (~10&ndash;30&nbsp;s, a few cents each). It re-uses the last render until you change the photo, framing, captions or symbols. Falls back to a simulated render if the AI is unavailable.</div>
     </div>
 
     <div class="sect-label">Detail &ndash; stitch count</div>
@@ -345,8 +339,8 @@
 <div class="busy" id="busy"><div class="ring"></div><div class="msg" id="busyMsg">Working&hellip;</div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
-<script src="dmc.js?v=1m"></script>
-<script src="stitchengine.js?v=1m"></script>
+<script src="dmc.js?v=1n"></script>
+<script src="stitchengine.js?v=1n"></script>
 <script>
 (function () {
   'use strict';
@@ -356,11 +350,13 @@
 
   var LS = 'dsrEmbroidery';
   var opt = { detail: 120, colours: 12, matchDmc: true, auto: true, mode: 'colour',
-              count: 14, unit: 'in', colourPage: false, symWhite: true, size: 'free', noBg: false, pages: '1', aiUrl: '' };
+              count: 14, unit: 'in', colourPage: false, symWhite: true, size: 'free', noBg: false, pages: '1',
+              aiUrl: 'https://dsr-embroidery-ai.100dsr100.workers.dev' };
 
   // preset finished sizes as [longer edge in, shorter edge in]
   var SIZE_IN = { '6x8': [8, 6], '8x10': [10, 8], 'A5': [8.27, 5.83], 'A4': [11.69, 8.27], 'A3': [16.54, 11.69] };
   try { Object.assign(opt, JSON.parse(localStorage.getItem(LS) || '{}')); } catch (e) {}
+  if (!opt.aiUrl) opt.aiUrl = 'https://dsr-embroidery-ai.100dsr100.workers.dev';
   var save = function () { try { localStorage.setItem(LS, JSON.stringify(opt)); } catch (e) {} };
 
   var origId = null;       // pristine decoded photo
@@ -379,6 +375,7 @@
   var photoCanvas = document.createElement('canvas');   // cached photo (with matte)
   var lmap = { fit: 1, ox: 0, oy: 0 };          // frame -> screen (layout mode)
   var aiRender = null;                          // { img: canvas, key: string } – last AI embroidery render
+  var aiBusy = false, aiFailKey = '';           // don't auto-fire while running or right after a failure
 
   // identity of everything the AI render depends on (photo/frame/crop/overlays/cut-out)
   function aiKey() {
@@ -615,7 +612,6 @@
     Object.keys(MODEBTN).forEach(function (k) { $(MODEBTN[k]).classList.toggle('on', k === opt.mode); });
     $('layoutBar').hidden = opt.mode !== 'layout';
     $('embBar').hidden = opt.mode !== 'embroidery';
-    $('aiUrl').value = opt.aiUrl || '';
     $('preview').classList.toggle('sticky', opt.mode === 'layout');
     $('btnUpdate').style.display = opt.auto ? 'none' : '';
     applySize();
@@ -927,7 +923,7 @@
     }
     busy(false);
     origId = id; cutId = null; cutHow = '';
-    aiRender = null; $('btnAiClear').hidden = true;
+    aiRender = null; aiFailKey = '';
     opt.noBg = false; $('chNoBg').classList.remove('on');
     overlays = []; selId = null; $('oved').hidden = true; $('sympal').hidden = true;
     $('hint').style.display = 'none';
@@ -1038,14 +1034,11 @@
     Object.keys(MODEBTN).forEach(function (k) { $(MODEBTN[k]).classList.toggle('on', k === m); });
     $('layoutBar').hidden = m !== 'layout';
     $('embBar').hidden = m !== 'embroidery';
-    if (m === 'embroidery') $('btnAiClear').hidden = !(aiRender && aiRender.key === aiKey());
     $('preview').classList.toggle('sticky', m === 'layout');
     updateTouchAction();
     if (m === 'layout') { $('pvTools').style.display = origId ? 'flex' : 'none'; buildPhotoCanvas(); renderLayout(); }
-    else if (chart) {
-      if (m === 'embroidery') { busy(true, 'Rendering…'); setTimeout(function () { renderChart(true); busy(false); }, 15); }
-      else renderChart(true);
-    }
+    else if (m === 'embroidery') { enterEmbroidery(); }
+    else if (chart) renderChart(true);
     else { $('pvTools').style.display = 'none'; }
   }
   $('mLayout').addEventListener('click', function () { setMode('layout'); });
@@ -1055,11 +1048,13 @@
   $('mEmbroid').addEventListener('click', function () { setMode('embroidery'); });
 
   /* ---------- AI embroidery render ---------- */
-  $('aiUrl').addEventListener('input', function () { opt.aiUrl = this.value.trim(); save(); });
-  $('btnAiClear').addEventListener('click', function () {
-    aiRender = null; $('btnAiClear').hidden = true;
-    if (opt.mode === 'embroidery') { busy(true, 'Rendering…'); setTimeout(function () { renderChart(true); busy(false); }, 15); }
-  });
+  // Entering Embroidery mode: reuse a fresh AI render, or kick one off, else show the simulated one.
+  function enterEmbroidery() {
+    if (!chart) { $('pvTools').style.display = 'none'; return; }
+    if ((aiRender && aiRender.key === aiKey()) || aiBusy) { renderChart(true); return; }
+    if (origId && opt.aiUrl && aiFailKey !== aiKey()) { doAiRender(); return; }
+    renderChart(true);
+  }
   function aiRequestOnce(dataUrl) {
     return fetch(opt.aiUrl, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1071,9 +1066,9 @@
       return r.json().catch(function () { return { error: 'Bad response (HTTP ' + r.status + ').' }; });
     });
   }
-  $('btnAiRender').addEventListener('click', function () {
-    if (!origId) { status('Load a photo first.'); return; }
-    if (!opt.aiUrl) { status('Paste your AI render URL in the box below first.'); $('aiUrl').focus(); return; }
+  function doAiRender() {
+    if (!origId || !opt.aiUrl || aiBusy) return;
+    aiBusy = true;
     var src = composeSource();
     var maxD = 768, sc = Math.min(1, maxD / Math.max(src.width, src.height));
     var cw = Math.round(src.width * sc), chh = Math.round(src.height * sc);
@@ -1084,11 +1079,11 @@
     sg.imageSmoothingQuality = 'high'; sg.drawImage(t, 0, 0, cw, chh);
     var dataUrl = s.toDataURL('image/jpeg', 0.92);
     var wantKey = aiKey();
-
     var attempt = 0, maxAttempts = 3;
+    var showChart = function () { if (opt.mode === 'embroidery') renderChart(true); };
     function go() {
       attempt++;
-      busy(true, attempt === 1 ? 'Rendering with AI… (up to a minute)' : 'AI service was busy – retry ' + attempt + '/' + maxAttempts + '…');
+      busy(true, attempt === 1 ? 'Rendering with AI… (10–30s)' : 'AI service busy – retry ' + attempt + '/' + maxAttempts + '…');
       aiRequestOnce(dataUrl).then(function (j) {
         if (j && j.image) {
           var url = /^data:/.test(j.image) ? j.image : ('data:' + (j.mime || 'image/png') + ';base64,' + j.image);
@@ -1096,26 +1091,31 @@
           im.onload = function () {
             var cv = document.createElement('canvas'); cv.width = im.naturalWidth; cv.height = im.naturalHeight;
             cv.getContext('2d').drawImage(im, 0, 0);
-            aiRender = { img: cv, key: wantKey, dataUrl: url };
-            $('btnAiClear').hidden = false;
-            busy(false); status('AI render ready.');
-            if (opt.mode === 'embroidery') renderChart(true);
+            aiRender = { img: cv, key: wantKey, dataUrl: url }; aiFailKey = '';
+            aiBusy = false; busy(false); status('AI render ready.'); showChart();
           };
-          im.onerror = function () { busy(false); status('AI returned an unreadable image.'); };
+          im.onerror = function () { aiFailKey = wantKey; aiBusy = false; busy(false); status('AI returned an unreadable image.'); showChart(); };
           im.src = url;
           return;
         }
         var msg = (j && j.error) || 'no image returned';
-        var busyErr = /All render backends failed|Too Many Requests|429|queue full|busy|timeout/i.test(msg + ' ' + JSON.stringify((j && j.tried) || ''));
-        if (busyErr && attempt < maxAttempts) { setTimeout(go, 15000); return; }
-        busy(false);
-        status('AI render failed: ' + msg + ((j && j.tried) ? ' — ' + j.tried.join(' | ') : ''));
+        var transient = /All render backends failed|Too Many Requests|429|queue full|busy|timeout/i.test(msg + ' ' + JSON.stringify((j && j.tried) || ''));
+        if (transient && attempt < maxAttempts) { setTimeout(go, 15000); return; }
+        aiFailKey = wantKey; aiBusy = false; busy(false);
+        status('AI render failed: ' + msg + ((j && j.tried && j.tried.length) ? ' — ' + j.tried.join(' | ') : ''));
+        showChart();
       }).catch(function (e) {
         if (attempt < maxAttempts) { setTimeout(go, 12000); return; }
-        busy(false); status('Could not reach the AI service: ' + (e && e.message || e));
+        aiFailKey = wantKey; aiBusy = false; busy(false);
+        status('Could not reach the AI service: ' + (e && e.message || e)); showChart();
       });
     }
     go();
+  }
+  $('btnAiRedo').addEventListener('click', function () {
+    if (!origId) { status('Load a photo first.'); return; }
+    aiRender = null; aiFailKey = '';
+    doAiRender();
   });
 
   function zoomStep(f, sx, sy) {
@@ -1402,12 +1402,12 @@
       : 'Cuts out the main subject. Tap again to undo.';
     $('layoutBar').hidden = opt.mode !== 'layout';
     $('embBar').hidden = opt.mode !== 'embroidery';
-    $('aiUrl').value = opt.aiUrl || '';
+    if (!opt.aiUrl) opt.aiUrl = 'https://dsr-embroidery-ai.100dsr100.workers.dev';
     $('preview').classList.toggle('sticky', opt.mode === 'layout');
     $('hint').style.display = 'none';
     updateTouchAction();
 
-    aiRender = null;
+    aiRender = null; aiFailKey = '';
     var afterAi = function () {
       ensureScriptFont(function () {
         busy(false);
@@ -1422,7 +1422,6 @@
         var cv = document.createElement('canvas'); cv.width = im.naturalWidth; cv.height = im.naturalHeight;
         cv.getContext('2d').drawImage(im, 0, 0);
         aiRender = { img: cv, key: aiKey(), dataUrl: proj.aiRender };
-        $('btnAiClear').hidden = opt.mode !== 'embroidery';
         afterAi();
       };
       im.onerror = afterAi;
