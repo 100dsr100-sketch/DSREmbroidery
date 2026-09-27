@@ -2,6 +2,7 @@
    Same-origin: network-first (so a new deploy is picked up immediately),
    falling back to cache when offline. Cross-origin (CDN model/wasm): passthrough. */
 var CACHE = 'dsr-embroidery-v15';
+var OWN = 'dsr-embroidery-';   // only ever delete THIS app's old caches – every DSR app shares the github.io origin's cache storage
 var SHELL = ['./', './index.html', './stitchengine.js?v=1n', './dmc.js?v=1n', './dancingscript.woff2?v=1n', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', function (e) {
@@ -13,7 +14,7 @@ self.addEventListener('install', function (e) {
 self.addEventListener('activate', function (e) {
   e.waitUntil(
     caches.keys().then(function (keys) {
-      return Promise.all(keys.filter(function (k) { return k !== CACHE; }).map(function (k) { return caches.delete(k); }));
+      return Promise.all(keys.filter(function (k) { return k !== CACHE && k.indexOf(OWN) === 0; }).map(function (k) { return caches.delete(k); }));
     }).then(function () { return self.clients.claim(); })
   );
 });
