@@ -1,6 +1,6 @@
 {
   "name": "DSR Embroidery",
-  "short_name": "Embroidery",
+  "short_name": "DSR Embroidery",
   "description": "Turn a photo into a counted cross-stitch / embroidery-by-numbers chart with DMC thread matching and a printable pattern.",
   "start_url": "./index.html",
   "scope": "./",
