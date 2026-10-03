@@ -1,7 +1,7 @@
 /* DSR Embroidery - offline shell cache.
    Same-origin: network-first (so a new deploy is picked up immediately),
    falling back to cache when offline. Cross-origin (CDN model/wasm): passthrough. */
-var CACHE = 'dsr-embroidery-v15';
+var CACHE = 'dsr-embroidery-v16';
 var OWN = 'dsr-embroidery-';   // only ever delete THIS app's old caches – every DSR app shares the github.io origin's cache storage
 var SHELL = ['./', './index.html', './stitchengine.js?v=1n', './dmc.js?v=1n', './dancingscript.woff2?v=1n', './manifest.json', './icon.svg'];
 
