@@ -1,17 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="13" fill="#000"/>
-  <rect x="2.5" y="2.5" width="59" height="59" rx="11" fill="none" stroke="#D4AF42" stroke-width="2"/>
-  <g stroke="#FFD700" stroke-width="3.4" stroke-linecap="round">
-    <!-- a little heart drawn in cross-stitches -->
-    <g>
-      <path d="M20 22l8 8M28 22l-8 8"/>
-      <path d="M36 22l8 8M44 22l-8 8"/>
-      <path d="M14 30l8 8M22 30l-8 8"/>
-      <path d="M28 30l8 8M36 30l-8 8"/>
-      <path d="M42 30l8 8M50 30l-8 8"/>
-      <path d="M20 38l8 8M28 38l-8 8"/>
-      <path d="M36 38l8 8M44 38l-8 8"/>
-      <path d="M28 46l8 8M36 46l-8 8"/>
-    </g>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<!-- gold + one colour accent, matching the DSR Apps widget tile -->
+<rect width="512" height="512" rx="96" fill="#0A0A0A"/>
+<g transform="translate(106,106) scale(12.5)"><path d="M4.1,4.1L7.9,7.9M7.9,4.1L4.1,7.9" fill="none" stroke="#E8B830" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.1,4.1L13.9,7.9M13.9,4.1L10.1,7.9" fill="none" stroke="#E0475B" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.1,4.1L19.9,7.9M19.9,4.1L16.1,7.9" fill="none" stroke="#E8B830" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.1,10.1L7.9,13.9M7.9,10.1L4.1,13.9" fill="none" stroke="#E0475B" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.1,10.1L13.9,13.9M13.9,10.1L10.1,13.9" fill="none" stroke="#E8B830" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.1,10.1L19.9,13.9M19.9,10.1L16.1,13.9" fill="none" stroke="#E0475B" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.1,16.1L7.9,19.9M7.9,16.1L4.1,19.9" fill="none" stroke="#E8B830" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.1,16.1L13.9,19.9M13.9,16.1L10.1,19.9" fill="none" stroke="#E0475B" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.1,16.1L19.9,19.9M19.9,16.1L16.1,19.9" fill="none" stroke="#E8B830" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></g>
 </svg>
